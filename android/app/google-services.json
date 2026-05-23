@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1075574521581",
+    "project_id": "gestor-proyectos-app-7c229",
+    "storage_bucket": "gestor-proyectos-app-7c229.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1075574521581:android:d4d16b3b5b2ae3adc416e4",
+        "android_client_info": {
+          "package_name": "com.example.gestor_proyectos_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDHtPwXoDjD3RpYB0e-UrBN5grQOZIFkYU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
