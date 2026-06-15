@@ -1,7 +1,7 @@
 class AppCache {
   static Map<String, dynamic>? perfil;
   static Map<String, dynamic>? dashboard;
-  static Map<String, dynamic>? reporteMes;
+  static final Map<String, Map<String, dynamic>> reporteMesPorToken = {};
 
   static List<Map<String, dynamic>>? clientes;
   static List<Map<String, dynamic>>? proyectos;
@@ -10,9 +10,11 @@ class AppCache {
   static final Map<int, Map<String, dynamic>> pagosPorProyecto = {};
   static final Map<int, List<Map<String, dynamic>>> visitasPorProyecto = {};
   static final Map<int, List<Map<String, dynamic>>> comentariosPorProyecto = {};
-  static final Map<int, List<Map<String, dynamic>>> recordatoriosPorProyecto = {};
+  static final Map<int, List<Map<String, dynamic>>> recordatoriosPorProyecto =
+      {};
 
   static bool preloadIniciado = false;
+  static int sessionGeneration = 0;
 
   static void guardarPerfil(dynamic data) {
     if (data is Map) {
@@ -38,15 +40,41 @@ class AppCache {
     }
   }
 
-  static void guardarReporteMes(dynamic data) {
-    if (data is Map) {
-      reporteMes = Map<String, dynamic>.from(data);
+  static Map<String, dynamic>? obtenerReporteMes(String token) {
+    final key = token.trim();
+
+    if (key.isEmpty) return null;
+
+    return reporteMesPorToken[key];
+  }
+
+  static void guardarReporteMes({
+    required String token,
+    required dynamic data,
+  }) {
+    final key = token.trim();
+
+    if (key.isEmpty || data is! Map) {
+      return;
     }
+
+    reporteMesPorToken[key] = Map<String, dynamic>.from(data);
+  }
+
+  static void invalidarReporteMes([String? token]) {
+    if (token == null) {
+      reporteMesPorToken.clear();
+      return;
+    }
+
+    reporteMesPorToken.remove(token.trim());
   }
 
   static void guardarRecordatorios(dynamic data) {
     if (data is List) {
-      recordatorios = data.map((item) => Map<String, dynamic>.from(item)).toList();
+      recordatorios = data
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
   }
 
@@ -64,8 +92,9 @@ class AppCache {
     required dynamic data,
   }) {
     if (data is List) {
-      visitasPorProyecto[proyectoId] =
-          data.map((item) => Map<String, dynamic>.from(item)).toList();
+      visitasPorProyecto[proyectoId] = data
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
   }
 
@@ -74,8 +103,9 @@ class AppCache {
     required dynamic data,
   }) {
     if (data is List) {
-      comentariosPorProyecto[proyectoId] =
-          data.map((item) => Map<String, dynamic>.from(item)).toList();
+      comentariosPorProyecto[proyectoId] = data
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
   }
 
@@ -84,8 +114,9 @@ class AppCache {
     required dynamic data,
   }) {
     if (data is List) {
-      recordatoriosPorProyecto[proyectoId] =
-          data.map((item) => Map<String, dynamic>.from(item)).toList();
+      recordatoriosPorProyecto[proyectoId] = data
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
   }
 
@@ -106,13 +137,15 @@ class AppCache {
     }
 
     if (visitas is List) {
-      visitasPorProyecto[proyectoId] =
-          visitas.map((item) => Map<String, dynamic>.from(item)).toList();
+      visitasPorProyecto[proyectoId] = visitas
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
 
     if (comentarios is List) {
-      comentariosPorProyecto[proyectoId] =
-          comentarios.map((item) => Map<String, dynamic>.from(item)).toList();
+      comentariosPorProyecto[proyectoId] = comentarios
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
     }
 
     if (recordatoriosProyecto is List) {
@@ -124,11 +157,22 @@ class AppCache {
 
   static void invalidarResumenes() {
     dashboard = null;
-    reporteMes = null;
+    reporteMesPorToken.clear();
   }
 
   static void invalidarProyectos() {
     proyectos = null;
+    invalidarResumenes();
+  }
+
+  static void invalidarTodoDespuesDeCambioEnCliente() {
+    clientes = null;
+    proyectos = null;
+    recordatorios = null;
+    pagosPorProyecto.clear();
+    visitasPorProyecto.clear();
+    comentariosPorProyecto.clear();
+    recordatoriosPorProyecto.clear();
     invalidarResumenes();
   }
 
@@ -147,9 +191,10 @@ class AppCache {
   }
 
   static void clear() {
+    sessionGeneration++;
     perfil = null;
     dashboard = null;
-    reporteMes = null;
+    reporteMesPorToken.clear();
     clientes = null;
     proyectos = null;
     recordatorios = null;

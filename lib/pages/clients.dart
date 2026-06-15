@@ -24,6 +24,26 @@ class ClientsPage extends StatefulWidget {
   State<ClientsPage> createState() => _ClientsPageState();
 }
 
+class _DigitLimitingTextInputFormatter extends TextInputFormatter {
+  final int maxDigits;
+
+  const _DigitLimitingTextInputFormatter(this.maxDigits);
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digitCount = RegExp(r'\d').allMatches(newValue.text).length;
+
+    if (digitCount <= maxDigits) {
+      return newValue;
+    }
+
+    return oldValue;
+  }
+}
+
 class _ClientsPageState extends State<ClientsPage> {
   final ClientesService clientesService = ClientesService();
 
@@ -159,7 +179,7 @@ class _ClientsPageState extends State<ClientsPage> {
 
     String telefonoPrefijoSeleccionado = '+506';
 
-    await showDialog(
+    final resultadoGuardado = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
@@ -194,6 +214,11 @@ class _ClientsPageState extends State<ClientsPage> {
                             requiredField: true,
                             textCapitalization: TextCapitalization.words,
                             maxLength: 80,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                RegExp(r"[A-Za-zÁÉÍÓÚáéíóúÑñ\s'.-]"),
+                              ),
+                            ],
                             validator: (value) {
                               final text = value?.trim() ?? '';
 
@@ -285,12 +310,13 @@ class _ClientsPageState extends State<ClientsPage> {
                             icon: Icons.phone_outlined,
                             requiredField: true,
                             keyboardType: TextInputType.phone,
-                            maxLength: 20,
+                            maxLength: 25,
                             inputFormatters: [
                               FilteringTextInputFormatter.allow(
                                 RegExp(r'[0-9+\s()-]'),
                               ),
-                              LengthLimitingTextInputFormatter(20),
+                              LengthLimitingTextInputFormatter(25),
+                              _DigitLimitingTextInputFormatter(15),
                             ],
                             validator: (value) {
                               final text = value?.trim() ?? '';
@@ -299,14 +325,22 @@ class _ClientsPageState extends State<ClientsPage> {
                                 return 'El teléfono es obligatorio.';
                               }
 
-                              if (text.length < 4 || text.length > 20) {
-                                return 'Debe tener entre 4 y 20 caracteres.';
+                              if (text.length < 4 || text.length > 25) {
+                                return 'Debe tener entre 4 y 25 caracteres.';
                               }
 
                               final regex = RegExp(r'^[0-9+\s()-]+$');
 
                               if (!regex.hasMatch(text)) {
                                 return 'Use solo números, +, espacios, guiones o paréntesis.';
+                              }
+
+                              final digitos = RegExp(
+                                r'\d',
+                              ).allMatches(text).length;
+
+                              if (digitos > 15) {
+                                return 'El teléfono no puede superar 15 dígitos.';
                               }
 
                               return null;
@@ -378,7 +412,7 @@ class _ClientsPageState extends State<ClientsPage> {
                       if (guardando) return;
 
                       FocusManager.instance.primaryFocus?.unfocus();
-                      Navigator.of(dialogContext).pop();
+                      Navigator.of(dialogContext).pop(false);
                     },
                     onSubmit: () async {
                       if (!formKey.currentState!.validate()) {
@@ -429,23 +463,9 @@ class _ClientsPageState extends State<ClientsPage> {
                           );
                         }
 
-                        if (!mounted) return;
+                        if (!dialogContext.mounted) return;
 
-                        if (dialogContext.mounted) {
-                          FocusManager.instance.primaryFocus?.unfocus();
-                          Navigator.of(dialogContext).pop();
-                        }
-
-                        AppCache.clientes = null;
-                        AppCache.invalidarResumenes();
-
-                        mostrarMensaje(
-                          esEdicion
-                              ? 'Cliente actualizado correctamente.'
-                              : 'Cliente creado correctamente.',
-                        );
-
-                        await cargarClientes(silencioso: true);
+                        Navigator.of(dialogContext).pop(true);
                       } catch (error) {
                         if (dialogContext.mounted) {
                           setDialogState(() {
@@ -466,6 +486,18 @@ class _ClientsPageState extends State<ClientsPage> {
         );
       },
     );
+
+    if (resultadoGuardado == true && mounted) {
+      await cargarClientes(silencioso: true);
+
+      if (mounted) {
+        mostrarMensaje(
+          esEdicion
+              ? 'Cliente actualizado correctamente.'
+              : 'Cliente creado correctamente.',
+        );
+      }
+    }
 
     nombreController.dispose();
     telefonoController.dispose();
@@ -491,8 +523,7 @@ class _ClientsPageState extends State<ClientsPage> {
           int.parse(cliente['id'].toString()),
         );
 
-        AppCache.clientes = null;
-        AppCache.invalidarResumenes();
+        AppCache.invalidarTodoDespuesDeCambioEnCliente();
         accionEjecutada = true;
       },
     );

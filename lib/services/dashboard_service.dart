@@ -27,6 +27,9 @@ class DashboardService {
 
     return {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
       'Authorization': 'Bearer $_cachedToken',
     };
   }
@@ -36,7 +39,11 @@ class DashboardService {
   }
 
   Future<Map<String, dynamic>> _getMap(String path) async {
-    final url = Uri.parse('${ApiConfig.baseUrl}$path');
+    final url = Uri.parse('${ApiConfig.baseUrl}$path').replace(
+      queryParameters: {
+        'cacheBust': DateTime.now().microsecondsSinceEpoch.toString(),
+      },
+    );
 
     try {
       final response = await _client

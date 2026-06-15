@@ -13,13 +13,16 @@ import '../core/business/business_rules.dart';
 import '../core/ui/widgets/app_search_input.dart';
 import '../core/ui/widgets/app_pagination_controls.dart';
 import '../core/ui/widgets/formal_form_grid.dart';
+import '../core/ui/widgets/app_field_shell.dart';
 import '../core/ui/widgets/app_form_field.dart';
 import '../core/ui/widgets/app_select_field.dart';
 import '../core/ui/widgets/app_form_actions.dart';
 import 'project_detail.dart';
 
 class ProjectsPage extends StatefulWidget {
-  const ProjectsPage({super.key});
+  final int refreshToken;
+
+  const ProjectsPage({super.key, this.refreshToken = 0});
 
   @override
   State<ProjectsPage> createState() => _ProjectsPageState();
@@ -31,6 +34,9 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
   List<Map<String, dynamic>> proyectos = [];
   List<Map<String, dynamic>> clientes = [];
+
+  List<Map<String, dynamic>> get clientesDisponibles =>
+      AppCache.clientes ?? clientes;
 
   bool loading = true;
 
@@ -49,6 +55,20 @@ class _ProjectsPageState extends State<ProjectsPage> {
   void initState() {
     super.initState();
     cargarDatos();
+  }
+
+  @override
+  void didUpdateWidget(covariant ProjectsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.refreshToken != oldWidget.refreshToken) {
+      cargarDatos(silencioso: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 
   List<Map<String, dynamic>> get proyectosFiltrados {
@@ -205,7 +225,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
 
     final clienteId = proyecto['clienteId'];
 
-    final encontrado = clientes.where((item) {
+    final encontrado = clientesDisponibles.where((item) {
       return item['id']?.toString() == clienteId?.toString();
     }).toList();
 
@@ -217,12 +237,12 @@ class _ProjectsPageState extends State<ProjectsPage> {
   }
 
   int obtenerClienteSeleccionado(Map<String, dynamic>? proyecto) {
-    if (clientes.isEmpty) return 0;
+    if (clientesDisponibles.isEmpty) return 0;
 
     final clienteIdProyecto = proyecto?['clienteId'];
 
     if (clienteIdProyecto != null) {
-      final existe = clientes.any(
+      final existe = clientesDisponibles.any(
         (cliente) => cliente['id']?.toString() == clienteIdProyecto.toString(),
       );
 
@@ -236,7 +256,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
     if (cliente is Map && cliente['id'] != null) {
       final id = int.parse(cliente['id'].toString());
 
-      final existe = clientes.any(
+      final existe = clientesDisponibles.any(
         (item) => item['id']?.toString() == id.toString(),
       );
 
@@ -245,11 +265,40 @@ class _ProjectsPageState extends State<ProjectsPage> {
       }
     }
 
-    return int.parse(clientes.first['id'].toString());
+    return int.parse(clientesDisponibles.first['id'].toString());
+  }
+
+  List<Map<String, dynamic>> buscarClientesSugeridos(String query) {
+    final texto = query.trim().toLowerCase();
+
+    if (texto.isEmpty) {
+      return [];
+    }
+
+    final resultados = clientesDisponibles.where((cliente) {
+      final nombre = cliente['nombre']?.toString().toLowerCase() ?? '';
+      return nombre.contains(texto);
+    }).toList();
+
+    resultados.sort((a, b) {
+      final nombreA = a['nombre']?.toString().toLowerCase() ?? '';
+      final nombreB = b['nombre']?.toString().toLowerCase() ?? '';
+
+      final aEmpieza = nombreA.startsWith(texto);
+      final bEmpieza = nombreB.startsWith(texto);
+
+      if (aEmpieza != bEmpieza) {
+        return aEmpieza ? -1 : 1;
+      }
+
+      return nombreA.compareTo(nombreB);
+    });
+
+    return resultados.take(8).toList();
   }
 
   Future<void> abrirFormularioProyecto({Map<String, dynamic>? proyecto}) async {
-    if (clientes.isEmpty) {
+    if (clientesDisponibles.isEmpty) {
       mostrarMensaje('Primero debe registrar al menos un cliente.');
       return;
     }
@@ -271,6 +320,13 @@ class _ProjectsPageState extends State<ProjectsPage> {
     );
 
     int clienteSeleccionado = obtenerClienteSeleccionado(proyecto);
+    String clienteSeleccionadoNombre = proyecto == null
+        ? ''
+        : obtenerNombreCliente(proyecto);
+
+    if (clienteSeleccionadoNombre == 'Sin cliente') {
+      clienteSeleccionadoNombre = '';
+    }
 
     String estadoSeleccionado = proyecto?['estado']?.toString() ?? 'PENDIENTE';
 
@@ -329,40 +385,166 @@ class _ProjectsPageState extends State<ProjectsPage> {
                               return null;
                             },
                           ),
-                          AppSelectField<int>(
+                          AppFieldShell(
                             label: 'Cliente asociado',
-                            value: clienteSeleccionado,
-                            icon: Icons.person_outline,
                             requiredField: true,
-                            items: clientes.map((cliente) {
-                              final id = int.parse(cliente['id'].toString());
-                              final nombre =
-                                  cliente['nombre']?.toString() ?? 'Sin nombre';
+                            helperText:
+                                'Escriba el nombre y seleccione un cliente de la lista sugerida.',
+                            child: Autocomplete<Map<String, dynamic>>(
+                              initialValue: TextEditingValue(
+                                text: clienteSeleccionadoNombre,
+                              ),
+                              displayStringForOption: (option) {
+                                return option['nombre']?.toString() ?? '';
+                              },
+                              optionsBuilder: (textEditingValue) {
+                                return buscarClientesSugeridos(
+                                  textEditingValue.text,
+                                );
+                              },
+                              onSelected: (cliente) {
+                                final id = int.parse(cliente['id'].toString());
+                                final nombre =
+                                    cliente['nombre']?.toString() ?? '';
 
-                              return DropdownMenuItem<int>(
-                                value: id,
-                                child: Text(
-                                  nombre,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: guardando
-                                ? null
-                                : (value) {
-                                    if (value == null) return;
+                                setDialogState(() {
+                                  clienteSeleccionado = id;
+                                  clienteSeleccionadoNombre = nombre;
+                                });
+                              },
+                              optionsViewBuilder:
+                                  (context, onSelected, options) {
+                                    final opciones = options.toList();
 
-                                    setDialogState(() {
-                                      clienteSeleccionado = value;
-                                    });
+                                    return Align(
+                                      alignment: Alignment.topLeft,
+                                      child: Material(
+                                        elevation: 8,
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: ConstrainedBox(
+                                          constraints: const BoxConstraints(
+                                            maxWidth: 520,
+                                            maxHeight: 260,
+                                          ),
+                                          child: ListView.separated(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 8,
+                                            ),
+                                            shrinkWrap: true,
+                                            itemCount: opciones.length,
+                                            separatorBuilder: (_, __) =>
+                                                const Divider(height: 1),
+                                            itemBuilder: (context, index) {
+                                              final cliente = opciones[index];
+                                              final nombre =
+                                                  cliente['nombre']
+                                                      ?.toString() ??
+                                                  'Sin nombre';
+                                              final detalle =
+                                                  cliente['correo']
+                                                      ?.toString() ??
+                                                  '';
+
+                                              return ListTile(
+                                                dense: true,
+                                                leading: const Icon(
+                                                  Icons.person_outline,
+                                                  color: AppColors.primary,
+                                                ),
+                                                title: Text(
+                                                  nombre,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                                subtitle: detalle.isEmpty
+                                                    ? null
+                                                    : Text(
+                                                        detalle,
+                                                        maxLines: 1,
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                      ),
+                                                onTap: () =>
+                                                    onSelected(cliente),
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                    );
                                   },
-                            validator: (value) {
-                              if (value == null || value <= 0) {
-                                return 'Debe seleccionar un cliente.';
-                              }
+                              fieldViewBuilder:
+                                  (
+                                    context,
+                                    textEditingController,
+                                    focusNode,
+                                    onFieldSubmitted,
+                                  ) {
+                                    return TextFormField(
+                                      controller: textEditingController,
+                                      focusNode: focusNode,
+                                      enabled: !guardando,
+                                      textCapitalization:
+                                          TextCapitalization.words,
+                                      decoration: InputDecoration(
+                                        hintText:
+                                            'Escriba el nombre del cliente',
+                                        prefixIcon: const Icon(
+                                          Icons.search,
+                                          color: AppColors.primary,
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 16,
+                                            ),
+                                        errorMaxLines: 2,
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                          borderSide: const BorderSide(
+                                            color: AppColors.border,
+                                          ),
+                                        ),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                          borderSide: const BorderSide(
+                                            color: AppColors.border,
+                                          ),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                          borderSide: const BorderSide(
+                                            color: AppColors.primary,
+                                            width: 1.4,
+                                          ),
+                                        ),
+                                      ),
+                                      onChanged: (value) {
+                                        if (value.trim() ==
+                                            clienteSeleccionadoNombre.trim()) {
+                                          return;
+                                        }
 
-                              return null;
-                            },
+                                        setDialogState(() {
+                                          clienteSeleccionado = 0;
+                                          clienteSeleccionadoNombre = '';
+                                        });
+                                      },
+                                      onFieldSubmitted: (_) =>
+                                          onFieldSubmitted(),
+                                    );
+                                  },
+                            ),
                           ),
                           AppFormField(
                             controller: montoController,
@@ -493,7 +675,14 @@ class _ProjectsPageState extends State<ProjectsPage> {
                         return;
                       }
 
-                      final clienteExiste = clientes.any(
+                      if (clienteSeleccionado <= 0) {
+                        mostrarMensaje(
+                          'Debe seleccionar un cliente de la lista sugerida.',
+                        );
+                        return;
+                      }
+
+                      final clienteExiste = clientesDisponibles.any(
                         (cliente) =>
                             cliente['id']?.toString() ==
                             clienteSeleccionado.toString(),
@@ -537,16 +726,21 @@ class _ProjectsPageState extends State<ProjectsPage> {
                           Navigator.of(dialogContext).pop();
                         }
 
-                        AppCache.proyectos = null;
-                        AppCache.invalidarResumenes();
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
 
-                        mostrarMensaje(
-                          esEdicion
-                              ? 'Proyecto actualizado correctamente.'
-                              : 'Proyecto creado correctamente.',
-                        );
+                          AppCache.proyectos = null;
+                          AppCache.invalidarResumenes();
+                          AppCache.invalidarReporteMes();
 
-                        await cargarDatos(silencioso: true);
+                          mostrarMensaje(
+                            esEdicion
+                                ? 'Proyecto actualizado correctamente.'
+                                : 'Proyecto creado correctamente.',
+                          );
+
+                          cargarDatos(silencioso: true);
+                        });
                       } catch (error) {
                         if (dialogContext.mounted) {
                           setDialogState(() {
@@ -593,6 +787,7 @@ class _ProjectsPageState extends State<ProjectsPage> {
         AppCache.invalidarDetalleProyecto(proyectoId);
         AppCache.proyectos = null;
         AppCache.invalidarResumenes();
+        AppCache.invalidarReporteMes();
 
         accionEjecutada = true;
       },

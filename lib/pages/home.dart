@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/auth_service.dart';
+import '../services/dashboard_service.dart';
 import '../ui/common.dart';
 import '../core/ui/dialogs/app_feedback.dart';
 import '../core/ui/widgets/app_shell_header.dart';
@@ -26,7 +27,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final AuthService authService = AuthService();
 
+  final List<Widget?> _screenCache = List<Widget?>.filled(6, null);
+
   int selectedIndex = 0;
+  int dashboardRefreshToken = 0;
+  int projectsRefreshToken = 0;
+  int remindersRefreshToken = 0;
+  int reportsRefreshToken = 0;
   Map<String, dynamic>? perfil;
   bool loading = true;
 
@@ -81,12 +88,103 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
   @override
   void initState() {
     super.initState();
     unawaited(cargarPerfil());
-    unawaited(PreloadService.precargarTodo());
+  }
+
+  Widget _buildScreenForIndex(int index) {
+    switch (index) {
+      case 0:
+        return DashboardRealPage(
+          key: ValueKey('dashboard_$dashboardRefreshToken'),
+          perfil: perfil,
+          refreshToken: dashboardRefreshToken,
+        );
+      case 1:
+        return const ClientsPage();
+      case 2:
+        return ProjectsPage(
+          key: ValueKey('projects_$projectsRefreshToken'),
+          refreshToken: projectsRefreshToken,
+        );
+      case 3:
+        return RemindersRealPage(
+          key: ValueKey('reminders_$remindersRefreshToken'),
+          refreshToken: remindersRefreshToken,
+        );
+      case 4:
+        return ReportsPage(
+          key: ValueKey('reports_$reportsRefreshToken'),
+          refreshToken: reportsRefreshToken,
+        );
+      case 5:
+        return SettingsPage(perfil: perfil, onLogout: cerrarSesion);
+      default:
+        return DashboardRealPage(
+          key: ValueKey('dashboard_$dashboardRefreshToken'),
+          perfil: perfil,
+          refreshToken: dashboardRefreshToken,
+        );
+    }
+  }
+
+  Widget _screenForIndex(int index) {
+    final cached = _screenCache[index];
+
+    if (cached != null) {
+      return cached;
+    }
+
+    final screen = _buildScreenForIndex(index);
+    _screenCache[index] = screen;
+    return screen;
+  }
+
+  void _rebuildProfileDependentScreens() {
+    _screenCache[0] = DashboardRealPage(
+      key: ValueKey('dashboard_$dashboardRefreshToken'),
+      perfil: perfil,
+      refreshToken: dashboardRefreshToken,
+    );
+    _screenCache[5] = SettingsPage(perfil: perfil, onLogout: cerrarSesion);
+  }
+
+  void _refreshScreenForIndex(int index) {
+    switch (index) {
+      case 0:
+        dashboardRefreshToken++;
+        _screenCache[0] = DashboardRealPage(
+          key: ValueKey('dashboard_$dashboardRefreshToken'),
+          perfil: perfil,
+          refreshToken: dashboardRefreshToken,
+        );
+        break;
+      case 2:
+        projectsRefreshToken++;
+        _screenCache[2] = ProjectsPage(
+          key: ValueKey('projects_$projectsRefreshToken'),
+          refreshToken: projectsRefreshToken,
+        );
+        break;
+      case 3:
+        remindersRefreshToken++;
+        _screenCache[3] = RemindersRealPage(
+          key: ValueKey('reminders_$remindersRefreshToken'),
+          refreshToken: remindersRefreshToken,
+        );
+        break;
+      case 4:
+        reportsRefreshToken++;
+        _screenCache[4] = ReportsPage(
+          key: ValueKey('reports_$reportsRefreshToken'),
+          refreshToken: reportsRefreshToken,
+        );
+        break;
+      default:
+        _screenForIndex(index);
+    }
   }
 
   Future<void> cargarPerfil() async {
@@ -96,7 +194,10 @@ class _HomeScreenState extends State<HomeScreen> {
         loading = false;
       });
 
-      PreloadService.precargarTodo();
+      _rebuildProfileDependentScreens();
+      unawaited(PreloadService.precargarTodo());
+
+      return;
     }
 
     try {
@@ -105,14 +206,17 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
 
       AppCache.guardarPerfil(data);
-      PreloadService.precargarTodo();
 
       setState(() {
         perfil = data;
         loading = false;
       });
+
+      _rebuildProfileDependentScreens();
+      unawaited(PreloadService.precargarTodo());
     } catch (_) {
       await authService.logout();
+      DashboardService.clearCache();
       AppCache.clear();
 
       if (!mounted) return;
@@ -127,6 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> cerrarSesion() async {
     await authService.logout();
+    DashboardService.clearCache();
     AppCache.clear();
 
     if (!mounted) return;
@@ -153,35 +258,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget getScreen() {
-    switch (selectedIndex) {
-      case 0:
-        return DashboardRealPage(perfil: perfil);
-      case 1:
-        return const ClientsPage();
-      case 2:
-        return const ProjectsPage();
-      case 3:
-        return const RemindersRealPage();
-      case 4:
-        return const ReportsPage();
-      case 5:
-        return SettingsPage(perfil: perfil, onLogout: cerrarSesion);
-      default:
-        return DashboardRealPage(perfil: perfil);
-    }
+    return _screenForIndex(selectedIndex);
   }
 
   Widget getScreenStack() {
+    _screenForIndex(selectedIndex);
+
     return IndexedStack(
       index: selectedIndex,
-      children: [
-        DashboardRealPage(perfil: perfil),
-        const ClientsPage(),
-        const ProjectsPage(),
-        const RemindersRealPage(),
-        const ReportsPage(),
-        SettingsPage(perfil: perfil, onLogout: cerrarSesion),
-      ],
+      children: List.generate(titles.length, (index) {
+        return _screenCache[index] ?? const SizedBox.shrink();
+      }),
     );
   }
 
@@ -217,6 +304,7 @@ class _HomeScreenState extends State<HomeScreen> {
         selectedIndex: selectedIndex,
         onDestinationSelected: (index) {
           setState(() {
+            _refreshScreenForIndex(index);
             selectedIndex = index;
           });
         },
@@ -339,6 +427,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     onDestinationSelected: (index) {
                       setState(() {
+                        _refreshScreenForIndex(index);
                         selectedIndex = index;
                       });
                     },
@@ -445,6 +534,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (loading) {
+      return const Scaffold(body: AppLoading(text: 'Cargando sesión...'));
+    }
+
     final width = MediaQuery.of(context).size.width;
     final isDesktop = width >= 900;
 

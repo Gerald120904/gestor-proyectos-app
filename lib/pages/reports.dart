@@ -8,13 +8,18 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import '../pages/auth.dart';
+import '../services/auth_service.dart';
+import '../services/dashboard_service.dart';
 import '../services/reportes_service.dart';
 import '../core/cache/app_cache.dart';
 import '../ui/common.dart';
 import '../core/ui/dialogs/app_feedback.dart';
 
 class ReportsPage extends StatefulWidget {
-  const ReportsPage({super.key});
+  final int refreshToken;
+
+  const ReportsPage({super.key, this.refreshToken = 0});
 
   @override
   State<ReportsPage> createState() => _ReportsPageState();
@@ -22,6 +27,8 @@ class ReportsPage extends StatefulWidget {
 
 class _ReportsPageState extends State<ReportsPage> {
   final ReportesService reportesService = ReportesService();
+  final AuthService authService = AuthService();
+  late final int _sessionGeneration;
 
   Map<String, dynamic>? reporte;
   bool loading = true;
@@ -39,6 +46,10 @@ class _ReportsPageState extends State<ReportsPage> {
     {'key': 'custom', 'label': 'Personalizado'},
   ];
 
+  bool _isCurrentSession() {
+    return mounted && _sessionGeneration == AppCache.sessionGeneration;
+  }
+
   // Paleta formal y profesional
   final List<Color> chartColors = const [
     Color(0xFF2563EB), // Azul profundo
@@ -54,20 +65,50 @@ class _ReportsPageState extends State<ReportsPage> {
   @override
   void initState() {
     super.initState();
+    _sessionGeneration = AppCache.sessionGeneration;
     cargarReporte();
   }
 
+  @override
+  void didUpdateWidget(covariant ReportsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.refreshToken != oldWidget.refreshToken) {
+      cargarReporte();
+    }
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
   Future<void> cargarReporte({bool silencioso = false}) async {
+    if (!_isCurrentSession()) return;
+
+    final token = await reportesService.getCurrentToken();
+
+    if (token == null || token.trim().isEmpty) {
+      await _cerrarSesionPorTokenInvalido();
+      return;
+    }
+
     final esReporteMesSinFechas =
-        selectedPeriod == 'month' && customStartDate == null && customEndDate == null;
+        selectedPeriod == 'month' &&
+        customStartDate == null &&
+        customEndDate == null;
 
-    if (esReporteMesSinFechas && AppCache.reporteMes != null) {
-      setState(() {
-        reporte = AppCache.reporteMes;
-        loading = false;
-      });
+    if (esReporteMesSinFechas) {
+      final cachedReport = AppCache.obtenerReporteMes(token);
 
-      silencioso = true;
+      if (cachedReport != null) {
+        setState(() {
+          reporte = cachedReport;
+          loading = false;
+        });
+
+        silencioso = true;
+      }
     }
 
     if (!silencioso && mounted) {
@@ -83,10 +124,10 @@ class _ReportsPageState extends State<ReportsPage> {
         endDate: customEndDate,
       );
 
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       if (esReporteMesSinFechas) {
-        AppCache.guardarReporteMes(data);
+        AppCache.guardarReporteMes(token: token, data: data);
       }
 
       setState(() {
@@ -94,7 +135,12 @@ class _ReportsPageState extends State<ReportsPage> {
         loading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
+
+      if (error is UnauthorizedException) {
+        await _cerrarSesionPorTokenInvalido();
+        return;
+      }
 
       setState(() {
         loading = false;
@@ -106,13 +152,24 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
+  Future<void> _cerrarSesionPorTokenInvalido() async {
+    await authService.logout();
+    DashboardService.clearCache();
+    AppCache.clear();
+
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (_) => false,
+    );
+  }
+
   void mostrarMensaje(String mensaje) {
     if (!mounted) return;
 
-    AppFeedback.message(
-      context: context,
-      message: mensaje,
-    );
+    AppFeedback.message(context: context, message: mensaje);
   }
 
   dynamic _summaryValue(String key) {
@@ -402,7 +459,9 @@ class _ReportsPageState extends State<ReportsPage> {
               return ChoiceChip(
                 selected: selected,
                 label: Text(label),
-                onSelected: loading || exporting ? null : (_) => seleccionarPeriodo(key),
+                onSelected: loading || exporting
+                    ? null
+                    : (_) => seleccionarPeriodo(key),
                 selectedColor: AppColors.primaryLight,
                 labelStyle: TextStyle(
                   color: selected ? AppColors.primary : AppColors.textMuted,
@@ -419,7 +478,9 @@ class _ReportsPageState extends State<ReportsPage> {
           final exportButton = SizedBox(
             height: 46,
             child: FilledButton.icon(
-              onPressed: loading || exporting || reporte == null ? null : exportarPdf,
+              onPressed: loading || exporting || reporte == null
+                  ? null
+                  : exportarPdf,
               style: FilledButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
@@ -591,8 +652,8 @@ class _ReportsPageState extends State<ReportsPage> {
         final columns = width >= 1180
             ? 4
             : width >= 760
-                ? 2
-                : 1;
+            ? 2
+            : 1;
         final gap = 14.0;
         final itemWidth = (width - (gap * (columns - 1))) / columns;
 
@@ -620,7 +681,8 @@ class _ReportsPageState extends State<ReportsPage> {
               width: itemWidth,
               title: 'Proyectos activos',
               value: _int(_summaryValue('proyectosActivos')).toString(),
-              subtitle: '${_int(_summaryValue('totalProyectos'))} proyectos registrados',
+              subtitle:
+                  '${_int(_summaryValue('totalProyectos'))} proyectos registrados',
               icon: Icons.folder_open_outlined,
               color: AppColors.primary,
             ),
@@ -628,7 +690,8 @@ class _ReportsPageState extends State<ReportsPage> {
               width: itemWidth,
               title: 'Clientes nuevos',
               value: _int(_summaryValue('clientesNuevosPeriodo')).toString(),
-              subtitle: '${_int(_summaryValue('totalClientes'))} clientes en total',
+              subtitle:
+                  '${_int(_summaryValue('totalClientes'))} clientes en total',
               icon: Icons.people_alt_outlined,
               color: const Color(0xFF7C3AED),
             ),
@@ -636,7 +699,8 @@ class _ReportsPageState extends State<ReportsPage> {
               width: itemWidth,
               title: 'Visitas realizadas',
               value: _int(_summaryValue('visitasRealizadasPeriodo')).toString(),
-              subtitle: '${_int(_summaryValue('visitasPeriodo'))} visitas en el periodo',
+              subtitle:
+                  '${_int(_summaryValue('visitasPeriodo'))} visitas en el periodo',
               icon: Icons.event_available_outlined,
               color: const Color(0xFF0891B2),
             ),
@@ -644,7 +708,8 @@ class _ReportsPageState extends State<ReportsPage> {
               width: itemWidth,
               title: 'Recordatorios vencidos',
               value: _int(_summaryValue('recordatoriosVencidos')).toString(),
-              subtitle: '${_int(_summaryValue('recordatoriosPendientes'))} pendientes',
+              subtitle:
+                  '${_int(_summaryValue('recordatoriosPendientes'))} pendientes',
               icon: Icons.notification_important_outlined,
               color: AppColors.danger,
             ),
@@ -875,7 +940,10 @@ class _ReportsPageState extends State<ReportsPage> {
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: slice.color.withAlpha(20),
                         borderRadius: BorderRadius.circular(6),
@@ -981,10 +1049,7 @@ class _ReportsPageState extends State<ReportsPage> {
             child: _chartCard(
               title: 'Pagos por método',
               subtitle: 'Monto recibido según el método de pago.',
-              child: _donutChart(
-                _chartItems('pagosPorMetodo'),
-                money: true,
-              ),
+              child: _donutChart(_chartItems('pagosPorMetodo'), money: true),
             ),
           ),
           SizedBox(
@@ -1028,11 +1093,7 @@ class _ReportsPageState extends State<ReportsPage> {
           ),
         ];
 
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: cards,
-        );
+        return Wrap(spacing: spacing, runSpacing: spacing, children: cards);
       },
     );
   }
@@ -1062,7 +1123,13 @@ class _ReportsPageState extends State<ReportsPage> {
         _tableCard(
           title: 'Proyectos con saldo pendiente',
           subtitle: 'Proyectos donde todavía existe dinero por cobrar.',
-          headers: const ['Proyecto', 'Cliente', 'Estado', 'Pagado', 'Pendiente'],
+          headers: const [
+            'Proyecto',
+            'Cliente',
+            'Estado',
+            'Pagado',
+            'Pendiente',
+          ],
           rows: pendientes.map((proyecto) {
             return [
               proyecto['nombre']?.toString() ?? '-',
@@ -1077,7 +1144,13 @@ class _ReportsPageState extends State<ReportsPage> {
         _tableCard(
           title: 'Top proyectos por ingreso',
           subtitle: 'Proyectos con mayor cantidad de dinero recibido.',
-          headers: const ['Proyecto', 'Cliente', 'Monto total', 'Cobrado', 'Pendiente'],
+          headers: const [
+            'Proyecto',
+            'Cliente',
+            'Monto total',
+            'Cobrado',
+            'Pendiente',
+          ],
           rows: top.map((proyecto) {
             return [
               proyecto['nombre']?.toString() ?? '-',
@@ -1150,7 +1223,9 @@ class _ReportsPageState extends State<ReportsPage> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingRowColor: WidgetStateProperty.all(AppColors.primaryLight),
+                headingRowColor: WidgetStateProperty.all(
+                  AppColors.primaryLight,
+                ),
                 border: TableBorder.all(
                   color: AppColors.border,
                   borderRadius: BorderRadius.circular(14),
@@ -1266,7 +1341,8 @@ class _ReportsPageState extends State<ReportsPage> {
 
             _pdfDonutChart(
               title: 'Cobrado vs pendiente',
-              subtitle: 'Comparación general entre dinero recibido y saldo por cobrar.',
+              subtitle:
+                  'Comparación general entre dinero recibido y saldo por cobrar.',
               items: cobradoVsPendiente,
               money: true,
             ),
@@ -1296,7 +1372,8 @@ class _ReportsPageState extends State<ReportsPage> {
 
             _pdfBarChart(
               title: 'Clientes nuevos',
-              subtitle: 'Crecimiento de clientes dentro del periodo seleccionado.',
+              subtitle:
+                  'Crecimiento de clientes dentro del periodo seleccionado.',
               items: clientesNuevos,
             ),
             pw.SizedBox(height: 14),
@@ -1321,7 +1398,13 @@ class _ReportsPageState extends State<ReportsPage> {
 
             _pdfTable(
               title: 'Pagos recientes',
-              headers: const ['Fecha', 'Proyecto', 'Cliente', 'Método', 'Monto'],
+              headers: const [
+                'Fecha',
+                'Proyecto',
+                'Cliente',
+                'Método',
+                'Monto',
+              ],
               rows: pagosRecientes.map((pago) {
                 return [
                   _date(pago['fecha']),
@@ -1336,7 +1419,13 @@ class _ReportsPageState extends State<ReportsPage> {
 
             _pdfTable(
               title: 'Proyectos con saldo pendiente',
-              headers: const ['Proyecto', 'Cliente', 'Estado', 'Pagado', 'Pendiente'],
+              headers: const [
+                'Proyecto',
+                'Cliente',
+                'Estado',
+                'Pagado',
+                'Pendiente',
+              ],
               rows: pendientes.map((proyecto) {
                 return [
                   proyecto['nombre']?.toString() ?? '-',
@@ -1351,7 +1440,13 @@ class _ReportsPageState extends State<ReportsPage> {
 
             _pdfTable(
               title: 'Top proyectos por ingreso',
-              headers: const ['Proyecto', 'Cliente', 'Monto total', 'Cobrado', 'Pendiente'],
+              headers: const [
+                'Proyecto',
+                'Cliente',
+                'Monto total',
+                'Cobrado',
+                'Pendiente',
+              ],
               rows: topProyectos.map((proyecto) {
                 return [
                   proyecto['nombre']?.toString() ?? '-',
@@ -1429,11 +1524,17 @@ class _ReportsPageState extends State<ReportsPage> {
                 pw.SizedBox(height: 5),
                 pw.Text(
                   'Periodo analizado: $_rangeDetailedLabel',
-                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey700),
+                  style: const pw.TextStyle(
+                    fontSize: 10,
+                    color: PdfColors.blueGrey700,
+                  ),
                 ),
                 pw.Text(
                   'Generado el ${_date(now.toIso8601String())}',
-                  style: const pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey700),
+                  style: const pw.TextStyle(
+                    fontSize: 10,
+                    color: PdfColors.blueGrey700,
+                  ),
                 ),
               ],
             ),
@@ -1533,14 +1634,46 @@ class _ReportsPageState extends State<ReportsPage> {
 
   pw.Widget _pdfMetricGrid() {
     final items = [
-      _PdfMetric('Ingresos del periodo', _moneyPdf(_summaryValue('totalIngresosPeriodo')), true),
-      _PdfMetric('Saldo pendiente', _moneyPdf(_summaryValue('saldoPendienteTotal')), false),
-      _PdfMetric('Monto total proyectos', _moneyPdf(_summaryValue('montoTotalProyectos')), true),
-      _PdfMetric('Total pagado histórico', _moneyPdf(_summaryValue('totalPagadoHistorico')), true),
-      _PdfMetric('Clientes nuevos', _int(_summaryValue('clientesNuevosPeriodo')).toString(), false),
-      _PdfMetric('Proyectos activos', _int(_summaryValue('proyectosActivos')).toString(), false),
-      _PdfMetric('Visitas realizadas', _int(_summaryValue('visitasRealizadasPeriodo')).toString(), false),
-      _PdfMetric('Recordatorios vencidos', _int(_summaryValue('recordatoriosVencidos')).toString(), false),
+      _PdfMetric(
+        'Ingresos del periodo',
+        _moneyPdf(_summaryValue('totalIngresosPeriodo')),
+        true,
+      ),
+      _PdfMetric(
+        'Saldo pendiente',
+        _moneyPdf(_summaryValue('saldoPendienteTotal')),
+        false,
+      ),
+      _PdfMetric(
+        'Monto total proyectos',
+        _moneyPdf(_summaryValue('montoTotalProyectos')),
+        true,
+      ),
+      _PdfMetric(
+        'Total pagado histórico',
+        _moneyPdf(_summaryValue('totalPagadoHistorico')),
+        true,
+      ),
+      _PdfMetric(
+        'Clientes nuevos',
+        _int(_summaryValue('clientesNuevosPeriodo')).toString(),
+        false,
+      ),
+      _PdfMetric(
+        'Proyectos activos',
+        _int(_summaryValue('proyectosActivos')).toString(),
+        false,
+      ),
+      _PdfMetric(
+        'Visitas realizadas',
+        _int(_summaryValue('visitasRealizadasPeriodo')).toString(),
+        false,
+      ),
+      _PdfMetric(
+        'Recordatorios vencidos',
+        _int(_summaryValue('recordatoriosVencidos')).toString(),
+        false,
+      ),
     ];
 
     final rows = <pw.Widget>[];
@@ -1556,12 +1689,17 @@ class _ReportsPageState extends State<ReportsPage> {
             return pw.Expanded(
               child: pw.Container(
                 margin: pw.EdgeInsets.only(right: j < 3 ? 8 : 0),
-                padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const pw.EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: pw.BoxDecoration(
                   color: metric.isMain ? PdfColors.blue50 : PdfColors.grey50,
                   borderRadius: pw.BorderRadius.circular(10),
                   border: pw.Border.all(
-                    color: metric.isMain ? PdfColors.blue200 : PdfColors.grey200,
+                    color: metric.isMain
+                        ? PdfColors.blue200
+                        : PdfColors.grey200,
                     width: 0.8,
                   ),
                 ),
@@ -1583,7 +1721,9 @@ class _ReportsPageState extends State<ReportsPage> {
                       style: pw.TextStyle(
                         fontSize: 11,
                         fontWeight: pw.FontWeight.bold,
-                        color: metric.isMain ? PdfColors.blue800 : PdfColors.blueGrey800,
+                        color: metric.isMain
+                            ? PdfColors.blue800
+                            : PdfColors.blueGrey800,
                       ),
                     ),
                   ],
@@ -1659,9 +1799,7 @@ class _ReportsPageState extends State<ReportsPage> {
           // Header del card
           pw.Container(
             padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 10),
-            decoration: const pw.BoxDecoration(
-              color: PdfColors.grey50,
-            ),
+            decoration: const pw.BoxDecoration(color: PdfColors.grey50),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1692,7 +1830,10 @@ class _ReportsPageState extends State<ReportsPage> {
                   ),
                 ),
                 pw.Container(
-                  padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: pw.BoxDecoration(
                     color: PdfColors.blue700,
                     borderRadius: pw.BorderRadius.circular(6),
@@ -1867,9 +2008,7 @@ class _ReportsPageState extends State<ReportsPage> {
           // Header
           pw.Container(
             padding: const pw.EdgeInsets.fromLTRB(14, 12, 14, 10),
-            decoration: const pw.BoxDecoration(
-              color: PdfColors.grey50,
-            ),
+            decoration: const pw.BoxDecoration(color: PdfColors.grey50),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -1933,9 +2072,12 @@ class _ReportsPageState extends State<ReportsPage> {
                       final value = _num(item['value']);
                       final percent = total <= 0 ? 0.0 : value / total;
                       final label = item['label']?.toString() ?? '-';
-                      final colorHex = _colorToHex(chartColors[index % chartColors.length]);
+                      final colorHex = _colorToHex(
+                        chartColors[index % chartColors.length],
+                      );
                       final fgColor = PdfColor.fromHex(colorHex);
-                      final bgColor = _pdfBarBgColors[index % _pdfBarBgColors.length];
+                      final bgColor =
+                          _pdfBarBgColors[index % _pdfBarBgColors.length];
 
                       return pw.Padding(
                         padding: const pw.EdgeInsets.only(bottom: 10),
@@ -1964,7 +2106,9 @@ class _ReportsPageState extends State<ReportsPage> {
                                 ),
                                 pw.SizedBox(width: 6),
                                 pw.Text(
-                                  money ? _moneyPdf(value) : _formatNumber(value),
+                                  money
+                                      ? _moneyPdf(value)
+                                      : _formatNumber(value),
                                   style: pw.TextStyle(
                                     fontSize: 8,
                                     fontWeight: pw.FontWeight.bold,
@@ -1973,7 +2117,10 @@ class _ReportsPageState extends State<ReportsPage> {
                                 ),
                                 pw.SizedBox(width: 6),
                                 pw.Container(
-                                  padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                  padding: const pw.EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 2,
+                                  ),
                                   decoration: pw.BoxDecoration(
                                     color: bgColor,
                                     borderRadius: pw.BorderRadius.circular(4),
@@ -1998,7 +2145,10 @@ class _ReportsPageState extends State<ReportsPage> {
                                 children: [
                                   if (percent > 0)
                                     pw.Flexible(
-                                      flex: (percent * 1000).round().clamp(1, 999),
+                                      flex: (percent * 1000).round().clamp(
+                                        1,
+                                        999,
+                                      ),
                                       child: pw.Container(
                                         height: 4,
                                         color: fgColor,
@@ -2006,7 +2156,9 @@ class _ReportsPageState extends State<ReportsPage> {
                                     ),
                                   if (percent < 1)
                                     pw.Flexible(
-                                      flex: ((1 - percent) * 1000).round().clamp(1, 999),
+                                      flex: ((1 - percent) * 1000)
+                                          .round()
+                                          .clamp(1, 999),
                                       child: pw.Container(
                                         height: 4,
                                         color: PdfColors.grey100,
@@ -2063,7 +2215,10 @@ class _ReportsPageState extends State<ReportsPage> {
               pw.SizedBox(height: 2),
               pw.Text(
                 'Sin datos para graficar en este periodo.',
-                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey500),
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.grey500,
+                ),
               ),
             ],
           ),
@@ -2091,8 +2246,10 @@ class _ReportsPageState extends State<ReportsPage> {
 
     final buffer = StringBuffer();
 
-    buffer.writeln('<svg xmlns="http://www.w3.org/2000/svg" '
-        'width="$size" height="$size" viewBox="0 0 $size $size">');
+    buffer.writeln(
+      '<svg xmlns="http://www.w3.org/2000/svg" '
+      'width="$size" height="$size" viewBox="0 0 $size $size">',
+    );
 
     // Fondo blanco
     buffer.writeln('<rect width="$size" height="$size" fill="white"/>');
@@ -2218,7 +2375,10 @@ class _ReportsPageState extends State<ReportsPage> {
           cellStyle: const pw.TextStyle(fontSize: 7.5),
           oddRowDecoration: const pw.BoxDecoration(color: PdfColors.grey50),
           cellAlignment: pw.Alignment.centerLeft,
-          cellPadding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          cellPadding: const pw.EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 5,
+          ),
           border: pw.TableBorder.all(color: PdfColors.grey200, width: 0.5),
         ),
       ],
@@ -2269,7 +2429,9 @@ class _ReportsPageState extends State<ReportsPage> {
             ignoring: !exporting,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 180),
-              child: exporting ? _buildExportingOverlay() : const SizedBox.shrink(),
+              child: exporting
+                  ? _buildExportingOverlay()
+                  : const SizedBox.shrink(),
             ),
           ),
         ),
@@ -2282,52 +2444,52 @@ class _ReportsPageState extends State<ReportsPage> {
       key: const ValueKey('exporting-overlay'),
       color: Colors.white.withAlpha(210),
       child: Center(
-          child: Container(
-            width: 280,
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppColors.border),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primaryDark.withAlpha(20),
-                  blurRadius: 28,
-                  offset: const Offset(0, 16),
+        child: Container(
+          width: 280,
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primaryDark.withAlpha(20),
+                blurRadius: 28,
+                offset: const Offset(0, 16),
+              ),
+            ],
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 34,
+                height: 34,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Generando PDF',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textDark,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
                 ),
-              ],
-            ),
-            child: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 34,
-                  height: 34,
-                  child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Preparando gráficas, porcentajes y tablas...',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontWeight: FontWeight.w600,
                 ),
-                SizedBox(height: 16),
-                Text(
-                  'Generando PDF',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textDark,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'Preparando gráficas, porcentajes y tablas...',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 
@@ -2341,11 +2503,17 @@ class _ReportsPageState extends State<ReportsPage> {
 //  PDF BUILD EN SEGUNDO HILO / ISOLATE
 // ─────────────────────────────────────────────────────
 
-Future<Uint8List> _buildReportPdfInBackground(Map<String, dynamic> payload) async {
+Future<Uint8List> _buildReportPdfInBackground(
+  Map<String, dynamic> payload,
+) async {
   final reporte = Map<String, dynamic>.from(payload['reporte'] as Map);
-  final rangeDetailedLabel = payload['rangeDetailedLabel']?.toString() ?? 'Reporte actual';
-  final generatedAtIso = payload['generatedAtIso']?.toString() ?? DateTime.now().toIso8601String();
-  final logoBytes = payload['logoBytes'] is Uint8List ? payload['logoBytes'] as Uint8List : null;
+  final rangeDetailedLabel =
+      payload['rangeDetailedLabel']?.toString() ?? 'Reporte actual';
+  final generatedAtIso =
+      payload['generatedAtIso']?.toString() ?? DateTime.now().toIso8601String();
+  final logoBytes = payload['logoBytes'] is Uint8List
+      ? payload['logoBytes'] as Uint8List
+      : null;
 
   final pdf = pw.Document();
   final now = DateTime.tryParse(generatedAtIso) ?? DateTime.now();
@@ -2392,7 +2560,8 @@ Future<Uint8List> _buildReportPdfInBackground(Map<String, dynamic> payload) asyn
           pw.SizedBox(height: 14),
           _isoPdfDonutChart(
             title: 'Cobrado vs pendiente',
-            subtitle: 'Comparación general entre dinero recibido y saldo por cobrar.',
+            subtitle:
+                'Comparación general entre dinero recibido y saldo por cobrar.',
             items: cobradoVsPendiente,
             money: true,
           ),
@@ -2418,7 +2587,8 @@ Future<Uint8List> _buildReportPdfInBackground(Map<String, dynamic> payload) asyn
           pw.SizedBox(height: 14),
           _isoPdfBarChart(
             title: 'Clientes nuevos',
-            subtitle: 'Crecimiento de clientes dentro del periodo seleccionado.',
+            subtitle:
+                'Crecimiento de clientes dentro del periodo seleccionado.',
             items: clientesNuevos,
           ),
           pw.SizedBox(height: 14),
@@ -2453,7 +2623,13 @@ Future<Uint8List> _buildReportPdfInBackground(Map<String, dynamic> payload) asyn
           pw.SizedBox(height: 16),
           _isoPdfTable(
             title: 'Proyectos con saldo pendiente',
-            headers: const ['Proyecto', 'Cliente', 'Estado', 'Pagado', 'Pendiente'],
+            headers: const [
+              'Proyecto',
+              'Cliente',
+              'Estado',
+              'Pagado',
+              'Pendiente',
+            ],
             rows: pendientes.map((proyecto) {
               return [
                 proyecto['nombre']?.toString() ?? '-',
@@ -2467,7 +2643,13 @@ Future<Uint8List> _buildReportPdfInBackground(Map<String, dynamic> payload) asyn
           pw.SizedBox(height: 16),
           _isoPdfTable(
             title: 'Top proyectos por ingreso',
-            headers: const ['Proyecto', 'Cliente', 'Monto total', 'Cobrado', 'Pendiente'],
+            headers: const [
+              'Proyecto',
+              'Cliente',
+              'Monto total',
+              'Cobrado',
+              'Pendiente',
+            ],
             rows: topProyectos.map((proyecto) {
               return [
                 proyecto['nombre']?.toString() ?? '-',
@@ -2609,7 +2791,10 @@ dynamic _isoSummaryValue(Map<String, dynamic> reporte, String key) {
   return null;
 }
 
-List<Map<String, dynamic>> _isoChartItems(Map<String, dynamic> reporte, String key) {
+List<Map<String, dynamic>> _isoChartItems(
+  Map<String, dynamic> reporte,
+  String key,
+) {
   final charts = reporte['charts'];
   if (charts is! Map) return [];
 
@@ -2623,17 +2808,27 @@ List<Map<String, dynamic>> _isoChartItems(Map<String, dynamic> reporte, String k
       .toList();
 }
 
-List<Map<String, dynamic>> _isoTableItems(Map<String, dynamic> reporte, String key) {
+List<Map<String, dynamic>> _isoTableItems(
+  Map<String, dynamic> reporte,
+  String key,
+) {
   final tables = reporte['tables'];
   if (tables is! Map) return [];
 
   final value = tables[key];
   if (value is! List) return [];
 
-  return value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList();
+  return value
+      .whereType<Map>()
+      .map((item) => Map<String, dynamic>.from(item))
+      .toList();
 }
 
-pw.Widget _isoPdfHeader(DateTime now, pw.MemoryImage? logoImage, String rangeDetailedLabel) {
+pw.Widget _isoPdfHeader(
+  DateTime now,
+  pw.MemoryImage? logoImage,
+  String rangeDetailedLabel,
+) {
   return pw.Container(
     width: double.infinity,
     padding: const pw.EdgeInsets.all(18),
@@ -2692,11 +2887,17 @@ pw.Widget _isoPdfHeader(DateTime now, pw.MemoryImage? logoImage, String rangeDet
               pw.SizedBox(height: 5),
               pw.Text(
                 'Periodo analizado: $rangeDetailedLabel',
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey700),
+                style: const pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.blueGrey700,
+                ),
               ),
               pw.Text(
                 'Generado el ${_isoDate(now.toIso8601String())}',
-                style: const pw.TextStyle(fontSize: 10, color: PdfColors.blueGrey700),
+                style: const pw.TextStyle(
+                  fontSize: 10,
+                  color: PdfColors.blueGrey700,
+                ),
               ),
             ],
           ),
@@ -2796,14 +2997,46 @@ pw.Widget _isoPdfSectionTitle(String title) {
 
 pw.Widget _isoPdfMetricGrid(Map<String, dynamic> reporte) {
   final items = [
-    _PdfMetric('Ingresos del periodo', _isoMoneyPdf(_isoSummaryValue(reporte, 'totalIngresosPeriodo')), true),
-    _PdfMetric('Saldo pendiente', _isoMoneyPdf(_isoSummaryValue(reporte, 'saldoPendienteTotal')), false),
-    _PdfMetric('Monto total proyectos', _isoMoneyPdf(_isoSummaryValue(reporte, 'montoTotalProyectos')), true),
-    _PdfMetric('Total pagado histórico', _isoMoneyPdf(_isoSummaryValue(reporte, 'totalPagadoHistorico')), true),
-    _PdfMetric('Clientes nuevos', _isoInt(_isoSummaryValue(reporte, 'clientesNuevosPeriodo')).toString(), false),
-    _PdfMetric('Proyectos activos', _isoInt(_isoSummaryValue(reporte, 'proyectosActivos')).toString(), false),
-    _PdfMetric('Visitas realizadas', _isoInt(_isoSummaryValue(reporte, 'visitasRealizadasPeriodo')).toString(), false),
-    _PdfMetric('Recordatorios vencidos', _isoInt(_isoSummaryValue(reporte, 'recordatoriosVencidos')).toString(), false),
+    _PdfMetric(
+      'Ingresos del periodo',
+      _isoMoneyPdf(_isoSummaryValue(reporte, 'totalIngresosPeriodo')),
+      true,
+    ),
+    _PdfMetric(
+      'Saldo pendiente',
+      _isoMoneyPdf(_isoSummaryValue(reporte, 'saldoPendienteTotal')),
+      false,
+    ),
+    _PdfMetric(
+      'Monto total proyectos',
+      _isoMoneyPdf(_isoSummaryValue(reporte, 'montoTotalProyectos')),
+      true,
+    ),
+    _PdfMetric(
+      'Total pagado histórico',
+      _isoMoneyPdf(_isoSummaryValue(reporte, 'totalPagadoHistorico')),
+      true,
+    ),
+    _PdfMetric(
+      'Clientes nuevos',
+      _isoInt(_isoSummaryValue(reporte, 'clientesNuevosPeriodo')).toString(),
+      false,
+    ),
+    _PdfMetric(
+      'Proyectos activos',
+      _isoInt(_isoSummaryValue(reporte, 'proyectosActivos')).toString(),
+      false,
+    ),
+    _PdfMetric(
+      'Visitas realizadas',
+      _isoInt(_isoSummaryValue(reporte, 'visitasRealizadasPeriodo')).toString(),
+      false,
+    ),
+    _PdfMetric(
+      'Recordatorios vencidos',
+      _isoInt(_isoSummaryValue(reporte, 'recordatoriosVencidos')).toString(),
+      false,
+    ),
   ];
 
   final rows = <pw.Widget>[];
@@ -2819,7 +3052,10 @@ pw.Widget _isoPdfMetricGrid(Map<String, dynamic> reporte) {
           return pw.Expanded(
             child: pw.Container(
               margin: pw.EdgeInsets.only(right: j < 3 ? 8 : 0),
-              padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              padding: const pw.EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
               decoration: pw.BoxDecoration(
                 color: metric.isMain ? PdfColors.blue50 : PdfColors.grey50,
                 borderRadius: pw.BorderRadius.circular(10),
@@ -2846,7 +3082,9 @@ pw.Widget _isoPdfMetricGrid(Map<String, dynamic> reporte) {
                     style: pw.TextStyle(
                       fontSize: 11,
                       fontWeight: pw.FontWeight.bold,
-                      color: metric.isMain ? PdfColors.blue800 : PdfColors.blueGrey800,
+                      color: metric.isMain
+                          ? PdfColors.blue800
+                          : PdfColors.blueGrey800,
                     ),
                   ),
                 ],
@@ -2868,13 +3106,19 @@ pw.Widget _isoPdfBarChart({
   String? subtitle,
   bool money = false,
 }) {
-  final filtered = items.where((item) => _isoNum(item['value']) > 0).take(8).toList();
+  final filtered = items
+      .where((item) => _isoNum(item['value']) > 0)
+      .take(8)
+      .toList();
 
   if (filtered.isEmpty) {
     return _isoPdfEmptyChart(title);
   }
 
-  final maxValue = filtered.fold<double>(0, (prev, item) => math.max(prev, _isoNum(item['value'])));
+  final maxValue = filtered.fold<double>(
+    0,
+    (prev, item) => math.max(prev, _isoNum(item['value'])),
+  );
   final total = filtered.fold<double>(0, (s, i) => s + _isoNum(i['value']));
 
   return pw.Container(
@@ -2910,14 +3154,20 @@ pw.Widget _isoPdfBarChart({
                       pw.SizedBox(height: 2),
                       pw.Text(
                         subtitle,
-                        style: const pw.TextStyle(fontSize: 8, color: PdfColors.blueGrey500),
+                        style: const pw.TextStyle(
+                          fontSize: 8,
+                          color: PdfColors.blueGrey500,
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
               pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const pw.EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
                 decoration: pw.BoxDecoration(
                   color: PdfColors.blue700,
                   borderRadius: pw.BorderRadius.circular(6),
@@ -2944,9 +3194,12 @@ pw.Widget _isoPdfBarChart({
               final label = item['label']?.toString() ?? '-';
               final value = _isoNum(item['value']);
               final percent = maxValue <= 0 ? 0.0 : value / maxValue;
-              final barPct = money ? (total <= 0 ? 0.0 : value / total) : percent;
+              final barPct = money
+                  ? (total <= 0 ? 0.0 : value / total)
+                  : percent;
               final fgColor = _isoPdfBarColors[index % _isoPdfBarColors.length];
-              final bgColor = _isoPdfBarBgColors[index % _isoPdfBarBgColors.length];
+              final bgColor =
+                  _isoPdfBarBgColors[index % _isoPdfBarBgColors.length];
 
               return pw.Padding(
                 padding: const pw.EdgeInsets.only(bottom: 9),
@@ -2977,7 +3230,10 @@ pw.Widget _isoPdfBarChart({
                       width: 95,
                       child: pw.Text(
                         _isoShortLabel(label, max: 19),
-                        style: const pw.TextStyle(fontSize: 8, color: PdfColors.blueGrey700),
+                        style: const pw.TextStyle(
+                          fontSize: 8,
+                          color: PdfColors.blueGrey700,
+                        ),
                       ),
                     ),
                     pw.SizedBox(width: 6),
@@ -3045,13 +3301,19 @@ pw.Widget _isoPdfDonutChart({
   String? subtitle,
   bool money = false,
 }) {
-  final filtered = items.where((item) => _isoNum(item['value']) > 0).take(6).toList();
+  final filtered = items
+      .where((item) => _isoNum(item['value']) > 0)
+      .take(6)
+      .toList();
 
   if (filtered.isEmpty) {
     return _isoPdfEmptyChart(title);
   }
 
-  final total = filtered.fold<double>(0, (sum, item) => sum + _isoNum(item['value']));
+  final total = filtered.fold<double>(
+    0,
+    (sum, item) => sum + _isoNum(item['value']),
+  );
   final svg = _isoBuildPdfDonutSvg(
     items: filtered,
     totalLabel: money ? _isoMoneyPdf(total) : _isoFormatNumber(total),
@@ -3090,7 +3352,10 @@ pw.Widget _isoPdfDonutChart({
                       pw.SizedBox(height: 2),
                       pw.Text(
                         subtitle,
-                        style: const pw.TextStyle(fontSize: 8, color: PdfColors.blueGrey500),
+                        style: const pw.TextStyle(
+                          fontSize: 8,
+                          color: PdfColors.blueGrey500,
+                        ),
                       ),
                     ],
                   ],
@@ -3098,7 +3363,10 @@ pw.Widget _isoPdfDonutChart({
               ),
               pw.Text(
                 '${filtered.length} categorías',
-                style: const pw.TextStyle(fontSize: 8, color: PdfColors.blueGrey400),
+                style: const pw.TextStyle(
+                  fontSize: 8,
+                  color: PdfColors.blueGrey400,
+                ),
               ),
             ],
           ),
@@ -3123,9 +3391,11 @@ pw.Widget _isoPdfDonutChart({
                     final value = _isoNum(item['value']);
                     final percent = total <= 0 ? 0.0 : value / total;
                     final label = item['label']?.toString() ?? '-';
-                    final colorHex = _isoChartHexColors[index % _isoChartHexColors.length];
+                    final colorHex =
+                        _isoChartHexColors[index % _isoChartHexColors.length];
                     final fgColor = PdfColor.fromHex(colorHex);
-                    final bgColor = _isoPdfBarBgColors[index % _isoPdfBarBgColors.length];
+                    final bgColor =
+                        _isoPdfBarBgColors[index % _isoPdfBarBgColors.length];
 
                     return pw.Padding(
                       padding: const pw.EdgeInsets.only(bottom: 10),
@@ -3146,12 +3416,17 @@ pw.Widget _isoPdfDonutChart({
                               pw.Expanded(
                                 child: pw.Text(
                                   _isoShortLabel(label, max: 20),
-                                  style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.blueGrey800),
+                                  style: const pw.TextStyle(
+                                    fontSize: 8.5,
+                                    color: PdfColors.blueGrey800,
+                                  ),
                                 ),
                               ),
                               pw.SizedBox(width: 6),
                               pw.Text(
-                                money ? _isoMoneyPdf(value) : _isoFormatNumber(value),
+                                money
+                                    ? _isoMoneyPdf(value)
+                                    : _isoFormatNumber(value),
                                 style: pw.TextStyle(
                                   fontSize: 8,
                                   fontWeight: pw.FontWeight.bold,
@@ -3160,7 +3435,10 @@ pw.Widget _isoPdfDonutChart({
                               ),
                               pw.SizedBox(width: 6),
                               pw.Container(
-                                padding: const pw.EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                padding: const pw.EdgeInsets.symmetric(
+                                  horizontal: 5,
+                                  vertical: 2,
+                                ),
                                 decoration: pw.BoxDecoration(
                                   color: bgColor,
                                   borderRadius: pw.BorderRadius.circular(4),
@@ -3184,13 +3462,25 @@ pw.Widget _isoPdfDonutChart({
                               children: [
                                 if (percent > 0)
                                   pw.Flexible(
-                                    flex: (percent * 1000).round().clamp(1, 999),
-                                    child: pw.Container(height: 4, color: fgColor),
+                                    flex: (percent * 1000).round().clamp(
+                                      1,
+                                      999,
+                                    ),
+                                    child: pw.Container(
+                                      height: 4,
+                                      color: fgColor,
+                                    ),
                                   ),
                                 if (percent < 1)
                                   pw.Flexible(
-                                    flex: ((1 - percent) * 1000).round().clamp(1, 999),
-                                    child: pw.Container(height: 4, color: PdfColors.grey100),
+                                    flex: ((1 - percent) * 1000).round().clamp(
+                                      1,
+                                      999,
+                                    ),
+                                    child: pw.Container(
+                                      height: 4,
+                                      color: PdfColors.grey100,
+                                    ),
                                   ),
                               ],
                             ),
@@ -3256,7 +3546,10 @@ String _isoBuildPdfDonutSvg({
   required List<Map<String, dynamic>> items,
   required String totalLabel,
 }) {
-  final total = items.fold<double>(0, (sum, item) => sum + _isoNum(item['value']));
+  final total = items.fold<double>(
+    0,
+    (sum, item) => sum + _isoNum(item['value']),
+  );
 
   const size = 200.0;
   const center = 100.0;
@@ -3266,10 +3559,16 @@ String _isoBuildPdfDonutSvg({
 
   final buffer = StringBuffer();
 
-  buffer.writeln('<svg xmlns="http://www.w3.org/2000/svg" width="$size" height="$size" viewBox="0 0 $size $size">');
+  buffer.writeln(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="$size" height="$size" viewBox="0 0 $size $size">',
+  );
   buffer.writeln('<rect width="$size" height="$size" fill="white"/>');
-  buffer.writeln('<circle cx="$center" cy="$center" r="${radius + strokeWidth / 2 + 2}" fill="none" stroke="#F1F5F9" stroke-width="2"/>');
-  buffer.writeln('<circle cx="$center" cy="$center" r="$radius" fill="none" stroke="#E2E8F0" stroke-width="$strokeWidth"/>');
+  buffer.writeln(
+    '<circle cx="$center" cy="$center" r="${radius + strokeWidth / 2 + 2}" fill="none" stroke="#F1F5F9" stroke-width="2"/>',
+  );
+  buffer.writeln(
+    '<circle cx="$center" cy="$center" r="$radius" fill="none" stroke="#E2E8F0" stroke-width="$strokeWidth"/>',
+  );
 
   double startAngle = -math.pi / 2;
 
@@ -3296,16 +3595,28 @@ String _isoBuildPdfDonutSvg({
     final largeArc = sweepAngle > math.pi ? 1 : 0;
     final colorHex = _isoChartHexColors[i % _isoChartHexColors.length];
 
-    buffer.writeln('<path d="M $x1 $y1 A $radius $radius 0 $largeArc 1 $x2 $y2" fill="none" stroke="$colorHex" stroke-width="$strokeWidth" stroke-linecap="butt"/>');
+    buffer.writeln(
+      '<path d="M $x1 $y1 A $radius $radius 0 $largeArc 1 $x2 $y2" fill="none" stroke="$colorHex" stroke-width="$strokeWidth" stroke-linecap="butt"/>',
+    );
     startAngle += math.pi * 2 * percent;
   }
 
-  buffer.writeln('<circle cx="$center" cy="$center" r="${radius - strokeWidth / 2}" fill="white"/>');
-  buffer.writeln('<text x="$center" y="${center - 12}" text-anchor="middle" font-size="9" font-family="Arial, Helvetica, sans-serif" font-weight="bold" fill="#94A3B8" letter-spacing="1">TOTAL</text>');
-  buffer.writeln('<line x1="${center - 24}" y1="${center - 4}" x2="${center + 24}" y2="${center - 4}" stroke="#E2E8F0" stroke-width="0.8"/>');
+  buffer.writeln(
+    '<circle cx="$center" cy="$center" r="${radius - strokeWidth / 2}" fill="white"/>',
+  );
+  buffer.writeln(
+    '<text x="$center" y="${center - 12}" text-anchor="middle" font-size="9" font-family="Arial, Helvetica, sans-serif" font-weight="bold" fill="#94A3B8" letter-spacing="1">TOTAL</text>',
+  );
+  buffer.writeln(
+    '<line x1="${center - 24}" y1="${center - 4}" x2="${center + 24}" y2="${center - 4}" stroke="#E2E8F0" stroke-width="0.8"/>',
+  );
 
-  final labelShort = totalLabel.length > 14 ? totalLabel.substring(0, 14) : totalLabel;
-  buffer.writeln('<text x="$center" y="${center + 10}" text-anchor="middle" font-size="11" font-family="Arial, Helvetica, sans-serif" font-weight="bold" fill="#0F172A">$labelShort</text>');
+  final labelShort = totalLabel.length > 14
+      ? totalLabel.substring(0, 14)
+      : totalLabel;
+  buffer.writeln(
+    '<text x="$center" y="${center + 10}" text-anchor="middle" font-size="11" font-family="Arial, Helvetica, sans-serif" font-weight="bold" fill="#0F172A">$labelShort</text>',
+  );
   buffer.writeln('</svg>');
 
   return buffer.toString();
@@ -3452,10 +3763,7 @@ class _ReportBarChartPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: leftPadding - 10);
 
-      tp.paint(
-        canvas,
-        Offset(chartLeft - tp.width - 8, y - tp.height / 2),
-      );
+      tp.paint(canvas, Offset(chartLeft - tp.width - 8, y - tp.height / 2));
     }
 
     // ── Eje Y vertical ──
@@ -3474,7 +3782,9 @@ class _ReportBarChartPainter extends CustomPainter {
 
     for (int i = 0; i < points.length; i++) {
       final point = points[i];
-      final pct = maxValue <= 0 ? 0.0 : (point.value / maxValue).clamp(0.0, 1.0);
+      final pct = maxValue <= 0
+          ? 0.0
+          : (point.value / maxValue).clamp(0.0, 1.0);
       final barHeight = math.max(3.0, chartHeight * pct);
 
       final centerX = chartLeft + groupWidth * i + groupWidth / 2;
@@ -3487,7 +3797,10 @@ class _ReportBarChartPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
       canvas.drawRRect(
         RRect.fromLTRBAndCorners(
-          barLeft + 2, barTop + 6, barLeft + barWidth + 2, chartBottom,
+          barLeft + 2,
+          barTop + 6,
+          barLeft + barWidth + 2,
+          chartBottom,
           topLeft: Radius.circular(barWidth / 3),
           topRight: Radius.circular(barWidth / 3),
         ),
@@ -3499,15 +3812,15 @@ class _ReportBarChartPainter extends CustomPainter {
         ..shader = LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [
-            point.color,
-            point.color.withAlpha(195),
-          ],
+          colors: [point.color, point.color.withAlpha(195)],
         ).createShader(Rect.fromLTWH(barLeft, barTop, barWidth, barHeight));
 
       canvas.drawRRect(
         RRect.fromLTRBAndCorners(
-          barLeft, barTop, barLeft + barWidth, chartBottom,
+          barLeft,
+          barTop,
+          barLeft + barWidth,
+          chartBottom,
           topLeft: Radius.circular(barWidth / 3),
           topRight: Radius.circular(barWidth / 3),
         ),
@@ -3568,10 +3881,7 @@ class _ReportBarChartPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: groupWidth - 2);
 
-      lp.paint(
-        canvas,
-        Offset(centerX - lp.width / 2, chartBottom + 10),
-      );
+      lp.paint(canvas, Offset(centerX - lp.width / 2, chartBottom + 10));
     }
   }
 

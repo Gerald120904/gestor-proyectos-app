@@ -4,9 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:country_code_picker/country_code_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/cache/app_cache.dart';
 import '../services/auth_service.dart';
+import '../services/dashboard_service.dart';
 import '../services/push_notification_service.dart';
-import '../services/preload_service.dart';
 import '../ui/common.dart';
 import '../core/ui/dialogs/app_feedback.dart';
 import 'home.dart';
@@ -20,6 +21,10 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final AuthService authService = AuthService();
+
+  static const String _rememberedEmailKey = 'remembered_email';
+  static const String _rememberedPasswordKey = 'remembered_password';
+  static const String _rememberEmailKey = 'remember_email';
 
   final formKey = GlobalKey<FormState>();
 
@@ -38,36 +43,64 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> cargarCorreoRecordado() async {
     final prefs = await SharedPreferences.getInstance();
-    final correoGuardado = prefs.getString('remembered_email') ?? '';
-    final recordar = prefs.getBool('remember_email') ?? true;
+    final correoGuardado = prefs.getString(_rememberedEmailKey) ?? '';
+    final passwordGuardada = prefs.getString(_rememberedPasswordKey) ?? '';
+    final recordar = prefs.getBool(_rememberEmailKey) ?? true;
 
     if (!mounted) return;
 
     setState(() {
       recordarCorreo = recordar;
       emailController.text = correoGuardado;
+      passwordController.text = recordar ? passwordGuardada : '';
     });
   }
 
-  Future<void> guardarPreferenciaCorreo(String email) async {
+  Future<void> guardarPreferenciasInicioSesion(
+    String email,
+    String password,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
 
-    await prefs.setBool('remember_email', recordarCorreo);
+    await prefs.setBool(_rememberEmailKey, recordarCorreo);
 
     if (recordarCorreo) {
-      await prefs.setString('remembered_email', email);
+      await prefs.setString(_rememberedEmailKey, email);
+      await prefs.setString(_rememberedPasswordKey, password);
     } else {
-      await prefs.remove('remembered_email');
+      await prefs.remove(_rememberedEmailKey);
+      await prefs.remove(_rememberedPasswordKey);
+    }
+  }
+
+  void _guardarPerfilSiVieneEnLogin(dynamic response) {
+    if (response is! Map) return;
+
+    final posiblesClaves = ['perfil', 'profile', 'user'];
+
+    for (final key in posiblesClaves) {
+      final value = response[key];
+
+      if (value is Map) {
+        AppCache.guardarPerfil(value);
+        return;
+      }
+    }
+
+    final tieneDatosBasicos =
+        response['nombre'] != null ||
+        response['email'] != null ||
+        response['telefono'] != null;
+
+    if (tieneDatosBasicos) {
+      AppCache.guardarPerfil(response);
     }
   }
 
   void mostrarMensaje(String mensaje) {
     if (!mounted) return;
 
-    AppFeedback.message(
-      context: context,
-      message: mensaje,
-    );
+    AppFeedback.message(context: context, message: mensaje);
   }
 
   Future<void> iniciarSesion() async {
@@ -88,13 +121,18 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       final token =
-          response['accessToken'] ?? response['access_token'] ?? response['token'];
+          response['accessToken'] ??
+          response['access_token'] ??
+          response['token'];
 
       if (token == null || token.toString().trim().isEmpty) {
         throw Exception('El servidor no devolvió token.');
       }
 
-      await guardarPreferenciaCorreo(email);
+      DashboardService.clearCache();
+      AppCache.clear();
+      _guardarPerfilSiVieneEnLogin(response);
+      await guardarPreferenciasInicioSesion(email, password);
 
       passwordController.clear();
 
@@ -108,7 +146,6 @@ class _LoginScreenState extends State<LoginScreen> {
       // Esto corre después, sin bloquear el login ni dejar la pantalla cargando.
       Future.delayed(const Duration(milliseconds: 700), () {
         unawaited(PushNotificationService.instance.registrarTokenEnBackend());
-        unawaited(PreloadService.precargarTodo());
       });
     } catch (error) {
       final mensaje = error.toString().replaceAll('Exception: ', '');
@@ -116,18 +153,13 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(mensaje),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(mensaje), backgroundColor: Colors.red),
       );
 
       if (mensaje.toLowerCase().contains('verificar')) {
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => VerifyEmailScreen(email: email),
-          ),
+          MaterialPageRoute(builder: (_) => VerifyEmailScreen(email: email)),
         );
       }
     } finally {
@@ -288,7 +320,6 @@ class _LoginScreenState extends State<LoginScreen> {
                                   const Flexible(
                                     child: Text(
                                       'Recuérdame',
-                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: AppColors.textMuted,
                                         fontWeight: FontWeight.w800,
@@ -399,10 +430,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void mostrarMensaje(String mensaje) {
     if (!mounted) return;
 
-    AppFeedback.message(
-      context: context,
-      message: mensaje,
-    );
+    AppFeedback.message(context: context, message: mensaje);
   }
 
   String limpiarTelefono(String value) {
@@ -472,10 +500,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(mensaje),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(mensaje), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) {
@@ -499,9 +524,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Crear cuenta'),
-      ),
+      appBar: AppBar(title: const Text('Crear cuenta')),
       body: AppBackground(
         padding: const EdgeInsets.all(22),
         child: PageContainer(
@@ -545,6 +568,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: nombreController,
                         enabled: !loading,
                         textCapitalization: TextCapitalization.words,
+                        inputFormatters: [
+                          LengthLimitingTextInputFormatter(80),
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r"[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s']"),
+                          ),
+                        ],
                         decoration: const InputDecoration(
                           labelText: 'Nombre completo',
                           prefixIcon: Icon(Icons.person_outline),
@@ -554,6 +583,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                           if (text.isEmpty) {
                             return 'El nombre es obligatorio.';
+                          }
+
+                          if (RegExp(r'\d').hasMatch(text)) {
+                            return 'El nombre no puede contener números.';
                           }
 
                           if (text.length < 3 || text.length > 80) {
@@ -626,6 +659,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               enabled: !loading,
                               keyboardType: TextInputType.phone,
                               inputFormatters: [
+                                LengthLimitingTextInputFormatter(15),
                                 FilteringTextInputFormatter.allow(
                                   RegExp(r'[0-9\s\-\+\(\)]'),
                                 ),
@@ -646,6 +680,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   RegExp(r'[^0-9]'),
                                   '',
                                 );
+
+                                if (onlyNumbers.length > 15) {
+                                  return 'El teléfono no puede superar 15 dígitos.';
+                                }
 
                                 if (selectedCountryCode == 'CR' &&
                                     onlyNumbers.length != 8) {
@@ -683,6 +721,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: passwordController,
                         enabled: !loading,
                         obscureText: !passwordVisible,
+                        inputFormatters: [LengthLimitingTextInputFormatter(64)],
                         decoration: InputDecoration(
                           labelText: 'Contraseña',
                           prefixIcon: const Icon(Icons.lock_outline),
@@ -722,6 +761,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         controller: confirmPasswordController,
                         enabled: !loading,
                         obscureText: !confirmPasswordVisible,
+                        inputFormatters: [LengthLimitingTextInputFormatter(64)],
                         decoration: InputDecoration(
                           labelText: 'Confirmar contraseña',
                           prefixIcon: const Icon(Icons.lock_reset_outlined),
@@ -779,10 +819,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 class VerifyEmailScreen extends StatefulWidget {
   final String email;
 
-  const VerifyEmailScreen({
-    super.key,
-    required this.email,
-  });
+  const VerifyEmailScreen({super.key, required this.email});
 
   @override
   State<VerifyEmailScreen> createState() => _VerifyEmailScreenState();
@@ -800,10 +837,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   void mostrarMensaje(String mensaje) {
     if (!mounted) return;
 
-    AppFeedback.message(
-      context: context,
-      message: mensaje,
-    );
+    AppFeedback.message(context: context, message: mensaje);
   }
 
   Future<void> verificarCorreo() async {
@@ -880,9 +914,7 @@ class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Verificar correo'),
-      ),
+      appBar: AppBar(title: const Text('Verificar correo')),
       body: AppBackground(
         padding: const EdgeInsets.all(22),
         child: PageContainer(
@@ -1020,10 +1052,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   void mostrarMensaje(String mensaje) {
     if (!mounted) return;
 
-    AppFeedback.message(
-      context: context,
-      message: mensaje,
-    );
+    AppFeedback.message(context: context, message: mensaje);
   }
 
   Future<void> solicitarCodigo() async {
@@ -1122,9 +1151,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Recuperar contraseña'),
-      ),
+      appBar: AppBar(title: const Text('Recuperar contraseña')),
       body: AppBackground(
         padding: const EdgeInsets.all(22),
         child: PageContainer(
@@ -1136,9 +1163,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const AppHeaderBadge(
-                      icon: Icons.lock_reset_outlined,
-                    ),
+                    const AppHeaderBadge(icon: Icons.lock_reset_outlined),
                     const SizedBox(height: 24),
                     const Text(
                       'Recuperar contraseña',
@@ -1279,7 +1304,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                               obscureText: !confirmPasswordVisible,
                               decoration: InputDecoration(
                                 labelText: 'Confirmar contraseña',
-                                prefixIcon: const Icon(Icons.lock_reset_outlined),
+                                prefixIcon: const Icon(
+                                  Icons.lock_reset_outlined,
+                                ),
                                 suffixIcon: IconButton(
                                   onPressed: loading
                                       ? null
@@ -1327,9 +1354,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                               icon: const Icon(Icons.refresh),
                               label: const Text(
                                 'Reenviar código',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
+                                style: TextStyle(fontWeight: FontWeight.w800),
                               ),
                             ),
                           ],
@@ -1365,10 +1390,7 @@ class _GradientButton extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            AppColors.primary,
-            AppColors.accent,
-          ],
+          colors: [AppColors.primary, AppColors.accent],
         ),
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
@@ -1404,9 +1426,7 @@ class _GradientButton extends StatelessWidget {
               : Icon(icon),
           label: Text(
             loading ? 'Procesando...' : text,
-            style: const TextStyle(
-              fontWeight: FontWeight.w900,
-            ),
+            style: const TextStyle(fontWeight: FontWeight.w900),
           ),
         ),
       ),

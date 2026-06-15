@@ -11,11 +11,7 @@ class SettingsPage extends StatefulWidget {
   final Map<String, dynamic>? perfil;
   final VoidCallback onLogout;
 
-  const SettingsPage({
-    super.key,
-    required this.perfil,
-    required this.onLogout,
-  });
+  const SettingsPage({super.key, required this.perfil, required this.onLogout});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -64,10 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void mostrarMensaje(String mensaje) {
     if (!mounted) return;
 
-    AppFeedback.message(
-      context: context,
-      message: mensaje,
-    );
+    AppFeedback.message(context: context, message: mensaje);
   }
 
   String obtenerTexto(dynamic value, String fallback) {
@@ -372,9 +365,12 @@ class _SettingsPageState extends State<SettingsPage> {
 
                       if (!mounted) return;
 
-                      mostrarMensaje(
-                        data['message']?.toString() ??
-                            'Contraseña actualizada correctamente.',
+                      await AppFeedback.success(
+                        context: context,
+                        title: 'Contraseña actualizada',
+                        message:
+                            data['message']?.toString() ??
+                            'Su contraseña se actualizó correctamente.',
                       );
                     } catch (error) {
                       if (dialogContext.mounted) {
@@ -443,7 +439,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     }
 
                     if (text.toLowerCase() ==
-                        obtenerTexto(perfilActual?['email'], '').toLowerCase()) {
+                        obtenerTexto(
+                          perfilActual?['email'],
+                          '',
+                        ).toLowerCase()) {
                       return 'Debe ser diferente al correo actual.';
                     }
 
@@ -463,8 +462,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   onSubmit: () async {
                     if (!formKey.currentState!.validate()) return;
 
-                    final nuevoCorreo =
-                        emailController.text.trim().toLowerCase();
+                    final nuevoCorreo = emailController.text
+                        .trim()
+                        .toLowerCase();
 
                     setDialogState(() {
                       guardando = true;
@@ -527,7 +527,8 @@ class _SettingsPageState extends State<SettingsPage> {
           builder: (dialogContext, setDialogState) {
             return AppFormDialog(
               title: 'Confirmar correo',
-              subtitle: 'Te enviamos un código a tu correo actual para confirmar el cambio.',
+              subtitle:
+                  'Te enviamos un código a tu correo actual para confirmar el cambio.',
               icon: Icons.verified_outlined,
               desktopWidth: 560,
               desktopHeight: 430,
@@ -689,9 +690,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   keyboardType: TextInputType.phone,
                   requiredField: true,
                   inputFormatters: [
-                    FilteringTextInputFormatter.allow(
-                      RegExp(r'[0-9+\s()-]'),
-                    ),
+                    FilteringTextInputFormatter.allow(RegExp(r'[0-9+\s()-]')),
                     LengthLimitingTextInputFormatter(20),
                   ],
                   validator: (value) {
@@ -922,9 +921,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     if (loading && perfilActual == null) {
       return const Scaffold(
-        body: AppLoading(
-          text: 'Cargando configuración...',
-        ),
+        body: AppLoading(text: 'Cargando configuración...'),
       );
     }
 
@@ -951,10 +948,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         height: 86,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [
-                              AppColors.primary,
-                              AppColors.accent,
-                            ],
+                            colors: [AppColors.primary, AppColors.accent],
                           ),
                           borderRadius: BorderRadius.circular(28),
                           boxShadow: [
@@ -1163,9 +1157,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     icon: const Icon(Icons.logout),
                     label: const Text(
                       'Cerrar sesión',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                      ),
+                      style: TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
                 ),
@@ -1192,21 +1184,13 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 20,
-        vertical: 16,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: AppColors.border),
-        ),
+        border: Border(bottom: BorderSide(color: AppColors.border)),
       ),
       child: Row(
         children: [
-          Icon(
-            icon,
-            color: AppColors.primary,
-          ),
+          Icon(icon, color: AppColors.primary),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -1255,14 +1239,9 @@ class _ActionTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 20,
-            vertical: 16,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           decoration: const BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: AppColors.border),
-            ),
+            border: Border(bottom: BorderSide(color: AppColors.border)),
           ),
           child: Row(
             children: [
@@ -1273,10 +1252,7 @@ class _ActionTile extends StatelessWidget {
                   color: AppColors.primaryLight,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  icon,
-                  color: AppColors.primary,
-                ),
+                child: Icon(icon, color: AppColors.primary),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1304,10 +1280,7 @@ class _ActionTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: AppColors.textMuted,
-              ),
+              const Icon(Icons.chevron_right, color: AppColors.textMuted),
             ],
           ),
         ),

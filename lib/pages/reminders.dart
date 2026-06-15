@@ -24,8 +24,14 @@ import '../core/ui/widgets/app_form_actions.dart';
 class RemindersRealPage extends StatefulWidget {
   final int? proyectoId;
   final String? proyectoNombre;
+  final int refreshToken;
 
-  const RemindersRealPage({super.key, this.proyectoId, this.proyectoNombre});
+  const RemindersRealPage({
+    super.key,
+    this.proyectoId,
+    this.proyectoNombre,
+    this.refreshToken = 0,
+  });
 
   @override
   State<RemindersRealPage> createState() => _RemindersRealPageState();
@@ -37,6 +43,9 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
 
   List<Map<String, dynamic>> recordatorios = [];
   List<Map<String, dynamic>> proyectos = [];
+
+  List<Map<String, dynamic>> get proyectosDisponibles =>
+      AppCache.proyectos ?? proyectos;
 
   bool loading = true;
 
@@ -56,6 +65,20 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
   void initState() {
     super.initState();
     cargarDatos();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant RemindersRealPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.refreshToken != oldWidget.refreshToken) {
+      cargarDatos(silencioso: true);
+    }
   }
 
   List<Map<String, dynamic>> get recordatoriosFiltrados {
@@ -142,13 +165,14 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
     }
 
     try {
-      final recordatoriosData = esModoProyecto
-          ? await recordatoriosService.getRecordatoriosProyecto(
-              widget.proyectoId!,
-            )
-          : await recordatoriosService.getRecordatorios();
+      final recordatoriosFuture = esModoProyecto
+          ? recordatoriosService.getRecordatoriosProyecto(widget.proyectoId!)
+          : recordatoriosService.getRecordatorios();
+      final proyectosFuture = proyectosService.getProyectos();
 
-      final proyectosData = await proyectosService.getProyectos();
+      final results = await Future.wait([recordatoriosFuture, proyectosFuture]);
+      final recordatoriosData = results[0] as List<Map<String, dynamic>>;
+      final proyectosData = results[1] as List<Map<String, dynamic>>;
 
       if (!mounted) return;
 
@@ -278,14 +302,14 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
       return widget.proyectoId!;
     }
 
-    if (proyectos.isEmpty) {
+    if (proyectosDisponibles.isEmpty) {
       return 0;
     }
 
     final proyectoIdDirecto = recordatorio?['proyectoId'];
 
     if (proyectoIdDirecto != null) {
-      final existe = proyectos.any((proyecto) {
+      final existe = proyectosDisponibles.any((proyecto) {
         return proyecto['id']?.toString() == proyectoIdDirecto.toString();
       });
 
@@ -299,14 +323,14 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
     if (proyecto is Map && proyecto['id'] != null) {
       final id = int.parse(proyecto['id'].toString());
 
-      final existe = proyectos.any((item) {
+      final existe = proyectosDisponibles.any((item) {
         return item['id']?.toString() == id.toString();
       });
 
       if (existe) return id;
     }
 
-    return int.parse(proyectos.first['id'].toString());
+    return int.parse(proyectosDisponibles.first['id'].toString());
   }
 
   String obtenerNombreProyecto(Map<String, dynamic> recordatorio) {
@@ -322,7 +346,7 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
 
     final proyectoId = recordatorio['proyectoId'];
 
-    final encontrados = proyectos.where((item) {
+    final encontrados = proyectosDisponibles.where((item) {
       return item['id']?.toString() == proyectoId?.toString();
     }).toList();
 
@@ -334,7 +358,7 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
   }
 
   Map<String, dynamic>? obtenerProyectoPorId(int proyectoId) {
-    for (final proyecto in proyectos) {
+    for (final proyecto in proyectosDisponibles) {
       if (proyecto['id']?.toString() == proyectoId.toString()) {
         return proyecto;
       }
@@ -390,7 +414,7 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
   Future<void> abrirFormularioRecordatorio({
     Map<String, dynamic>? recordatorio,
   }) async {
-    if (!esModoProyecto && proyectos.isEmpty) {
+    if (!esModoProyecto && proyectosDisponibles.isEmpty) {
       mostrarMensaje('Primero debe registrar al menos un proyecto.');
       return;
     }
@@ -455,7 +479,7 @@ class _RemindersRealPageState extends State<RemindersRealPage> {
                               value: proyectoSeleccionado,
                               icon: Icons.folder_outlined,
                               requiredField: true,
-                              items: proyectos.map((proyecto) {
+                              items: proyectosDisponibles.map((proyecto) {
                                 final id = int.parse(proyecto['id'].toString());
 
                                 final nombre =

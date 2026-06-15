@@ -3,15 +3,69 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../config/api_config.dart';
+import 'auth_service.dart';
+
+class UnauthorizedException implements Exception {
+  final String message;
+
+  UnauthorizedException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class ReportesService {
+  ReportesService({AuthService? authService})
+    : authService = authService ?? AuthService();
+
+  final AuthService authService;
+
   String get baseUrl => ApiConfig.baseUrl;
+
+  Future<String?> getCurrentToken() async {
+    return authService.getToken();
+  }
 
   Future<Map<String, dynamic>> getGeneralReport({
     String period = 'month',
     DateTime? startDate,
     DateTime? endDate,
   }) async {
+    return _getReport(
+      '/reports/general',
+      period: period,
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  Future<Map<String, dynamic>> getSummaryReport({
+    String period = 'month',
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    return _getReport(
+      '/reports/summary',
+      period: period,
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
+
+  Future<Map<String, dynamic>> _getReport(
+    String path, {
+    required String period,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final token = await authService.getToken();
+
+    if (token == null || token.trim().isEmpty) {
+      throw UnauthorizedException(
+        'No hay sesión activa. Inicia sesión de nuevo.',
+      );
+    }
+
     final query = <String, String>{'period': period};
 
     if (period == 'custom') {
@@ -23,16 +77,29 @@ class ReportesService {
       query['endDate'] = _formatDate(endDate);
     }
 
-    final uri = Uri.parse(
-      '$baseUrl/reports/general',
-    ).replace(queryParameters: query);
+    final uri = Uri.parse('$baseUrl$path').replace(queryParameters: query);
 
     final response = await http.get(
       uri,
-      headers: const {'Content-Type': 'application/json'},
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'Authorization': 'Bearer $token',
+      },
     );
 
     final decoded = _decodeResponse(response.body);
+
+    if (response.statusCode == 401) {
+      await authService.logout();
+      throw UnauthorizedException(
+        _extractErrorMessage(decoded) == 'No se pudo cargar el reporte.'
+            ? 'Tu sesión expiró. Inicia sesión nuevamente.'
+            : _extractErrorMessage(decoded),
+      );
+    }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       if (decoded is Map<String, dynamic>) {

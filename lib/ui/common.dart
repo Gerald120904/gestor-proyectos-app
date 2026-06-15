@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:math' as math;
 
 class AppColors {
   static const Color primary = Color(0xFF1D4ED8);
@@ -65,9 +66,7 @@ class AppTheme {
           color: AppColors.textMuted,
           fontWeight: FontWeight.w600,
         ),
-        hintStyle: const TextStyle(
-          color: AppColors.textMuted,
-        ),
+        hintStyle: const TextStyle(color: AppColors.textMuted),
         prefixIconColor: AppColors.primary,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
@@ -75,10 +74,7 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(
-            color: AppColors.primary,
-            width: 1.8,
-          ),
+          borderSide: const BorderSide(color: AppColors.primary, width: 1.8),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
@@ -86,10 +82,7 @@ class AppTheme {
         ),
         focusedErrorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(18),
-          borderSide: const BorderSide(
-            color: AppColors.danger,
-            width: 1.8,
-          ),
+          borderSide: const BorderSide(color: AppColors.danger, width: 1.8),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
@@ -144,9 +137,7 @@ class AppTheme {
           fontWeight: FontWeight.w600,
         ),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
   }
@@ -169,18 +160,11 @@ class AppBackground extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFF8FAFC),
-            Color(0xFFEFF6FF),
-            Color(0xFFF8FAFC),
-          ],
+          colors: [Color(0xFFF8FAFC), Color(0xFFEFF6FF), Color(0xFFF8FAFC)],
         ),
       ),
       child: SafeArea(
-        child: Padding(
-          padding: padding,
-          child: child,
-        ),
+        child: Padding(padding: padding, child: child),
       ),
     );
   }
@@ -190,11 +174,7 @@ class PageContainer extends StatelessWidget {
   final Widget child;
   final double maxWidth;
 
-  const PageContainer({
-    super.key,
-    required this.child,
-    this.maxWidth = 980,
-  });
+  const PageContainer({super.key, required this.child, this.maxWidth = 980});
 
   @override
   Widget build(BuildContext context) {
@@ -241,10 +221,7 @@ class AppGlassCard extends StatelessWidget {
 class AppHeaderBadge extends StatelessWidget {
   final IconData icon;
 
-  const AppHeaderBadge({
-    super.key,
-    required this.icon,
-  });
+  const AppHeaderBadge({super.key, required this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -253,10 +230,7 @@ class AppHeaderBadge extends StatelessWidget {
       height: 92,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            AppColors.primary,
-            AppColors.accent,
-          ],
+          colors: [AppColors.primary, AppColors.accent],
         ),
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
@@ -267,11 +241,7 @@ class AppHeaderBadge extends StatelessWidget {
           ),
         ],
       ),
-      child: Icon(
-        icon,
-        size: 48,
-        color: Colors.white,
-      ),
+      child: Icon(icon, size: 48, color: Colors.white),
     );
   }
 }
@@ -280,11 +250,7 @@ class AppSectionTitle extends StatelessWidget {
   final String title;
   final String? subtitle;
 
-  const AppSectionTitle({
-    super.key,
-    required this.title,
-    this.subtitle,
-  });
+  const AppSectionTitle({super.key, required this.title, this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -349,11 +315,7 @@ class AppEmptyState extends StatelessWidget {
                     color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(28),
                   ),
-                  child: Icon(
-                    icon,
-                    size: 48,
-                    color: AppColors.primary,
-                  ),
+                  child: Icon(icon, size: 48, color: AppColors.primary),
                 ),
                 const SizedBox(height: 18),
                 Text(
@@ -387,10 +349,7 @@ class AppEmptyState extends StatelessWidget {
 class AppLoading extends StatelessWidget {
   final String text;
 
-  const AppLoading({
-    super.key,
-    this.text = 'Cargando información...',
-  });
+  const AppLoading({super.key, this.text = 'Cargando información...'});
 
   @override
   Widget build(BuildContext context) {
@@ -446,12 +405,12 @@ class AppFormDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     final size = media.size;
-    final isSmall = size.width < 700;
+    final isSmall = size.shortestSide < 600 || size.height < 560;
 
     final dialogWidth = isSmall ? size.width * 0.94 : desktopWidth;
     final maxDialogHeight = isSmall
-        ? size.height * 0.88
-        : desktopHeight.clamp(360.0, size.height * 0.88).toDouble();
+        ? math.max(280.0, size.height * 0.94)
+        : math.min(desktopHeight, size.height * 0.88);
 
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
@@ -575,9 +534,7 @@ class AppFormDialog extends StatelessWidget {
                     ),
                     decoration: const BoxDecoration(
                       color: AppColors.surfaceSoft,
-                      border: Border(
-                        top: BorderSide(color: AppColors.border),
-                      ),
+                      border: Border(top: BorderSide(color: AppColors.border)),
                       borderRadius: BorderRadius.only(
                         bottomLeft: Radius.circular(26),
                         bottomRight: Radius.circular(26),
@@ -643,10 +600,7 @@ class AppTablePanel extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         AppSectionTitle(title: title, subtitle: subtitle),
-        AppGlassCard(
-          padding: const EdgeInsets.all(16),
-          child: child,
-        ),
+        AppGlassCard(padding: const EdgeInsets.all(16), child: child),
       ],
     );
   }

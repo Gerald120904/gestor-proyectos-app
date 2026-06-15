@@ -13,6 +13,7 @@ class PreloadService {
     if (AppCache.preloadIniciado) return;
 
     AppCache.preloadIniciado = true;
+    final generationAtStart = AppCache.sessionGeneration;
 
     final authService = AuthService();
     final clientesService = ClientesService();
@@ -23,6 +24,7 @@ class PreloadService {
 
     Future<void> safe(Future<void> Function() task) async {
       try {
+        if (generationAtStart != AppCache.sessionGeneration) return;
         await task();
       } catch (_) {
         // La precarga nunca debe bloquear el login ni la navegación.
@@ -31,25 +33,35 @@ class PreloadService {
 
     await Future.wait([
       safe(() async {
-        AppCache.perfil = await authService.profile();
-      }),
-      safe(() async {
+        if (generationAtStart != AppCache.sessionGeneration) return;
         AppCache.dashboard = await dashboardService.getDashboard();
       }),
       safe(() async {
+        if (generationAtStart != AppCache.sessionGeneration) return;
         AppCache.clientes = await clientesService.getClientes();
       }),
       safe(() async {
+        if (generationAtStart != AppCache.sessionGeneration) return;
         AppCache.proyectos = await proyectosService.getProyectos();
       }),
       safe(() async {
+        if (generationAtStart != AppCache.sessionGeneration) return;
         AppCache.recordatorios = await recordatoriosService.getRecordatorios();
       }),
       safe(() async {
-        AppCache.reporteMes = await reportesService.getGeneralReport(
+        if (generationAtStart != AppCache.sessionGeneration) return;
+        final token = await authService.getToken();
+
+        if (token == null || token.trim().isEmpty) return;
+
+        final reporteMes = await reportesService.getGeneralReport(
           period: 'month',
         );
+
+        AppCache.guardarReporteMes(token: token, data: reporteMes);
       }),
     ]);
+
+    if (generationAtStart != AppCache.sessionGeneration) return;
   }
 }

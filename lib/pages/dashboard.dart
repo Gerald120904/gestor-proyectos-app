@@ -12,8 +12,13 @@ import '../core/ui/widgets/app_search_input.dart';
 
 class DashboardRealPage extends StatefulWidget {
   final Map<String, dynamic>? perfil;
+  final int refreshToken;
 
-  const DashboardRealPage({super.key, required this.perfil});
+  const DashboardRealPage({
+    super.key,
+    required this.perfil,
+    this.refreshToken = 0,
+  });
 
   @override
   State<DashboardRealPage> createState() => _DashboardRealPageState();
@@ -22,6 +27,7 @@ class DashboardRealPage extends StatefulWidget {
 class _DashboardRealPageState extends State<DashboardRealPage> {
   final DashboardService dashboardService = DashboardService();
   final ScrollController _scrollController = ScrollController();
+  late final int _sessionGeneration;
 
   Map<String, dynamic>? resumenDashboard;
   Map<String, dynamic>? estadosDashboard;
@@ -36,9 +42,14 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
 
   String busquedaUltimosProyectos = '';
 
+  bool _isCurrentSession() {
+    return mounted && _sessionGeneration == AppCache.sessionGeneration;
+  }
+
   @override
   void initState() {
     super.initState();
+    _sessionGeneration = AppCache.sessionGeneration;
 
     _scrollController.addListener(_detectarCargaPorScroll);
 
@@ -49,9 +60,20 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
       initialLoadDone = true;
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      cargarResumenDashboard(silencioso: cachedDashboard != null);
-    });
+    if (cachedDashboard == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        cargarResumenDashboard();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant DashboardRealPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (widget.refreshToken != oldWidget.refreshToken) {
+      refrescarDashboard();
+    }
   }
 
   @override
@@ -74,6 +96,8 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
   }
 
   void _hidratarDesdeCache(Map<String, dynamic> data) {
+    if (!_isCurrentSession()) return;
+
     resumenDashboard = {
       'totalClientes': data['totalClientes'],
       'totalProyectos': data['totalProyectos'],
@@ -117,7 +141,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
   }
 
   Future<void> cargarResumenDashboard({bool silencioso = false}) async {
-    if (!mounted) return;
+    if (!_isCurrentSession()) return;
 
     setState(() {
       loadingResumen = resumenDashboard == null && !silencioso;
@@ -127,7 +151,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
     try {
       final data = await dashboardService.getResumenDashboard();
 
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         resumenDashboard = data;
@@ -141,7 +165,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
       // Después de pintar lo principal, cargamos estadísticas en segundo plano.
       cargarEstadosDashboard();
     } catch (error) {
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         loadingResumen = false;
@@ -156,7 +180,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
   }
 
   Future<void> cargarEstadosDashboard() async {
-    if (!mounted || loadingEstados) return;
+    if (!_isCurrentSession() || loadingEstados) return;
 
     setState(() {
       loadingEstados = true;
@@ -165,7 +189,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
     try {
       final data = await dashboardService.getEstadosDashboard();
 
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         estadosDashboard = data;
@@ -174,7 +198,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
 
       _guardarCacheCombinado();
     } catch (_) {
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         loadingEstados = false;
@@ -183,7 +207,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
   }
 
   Future<void> cargarUltimosProyectosDashboard() async {
-    if (!mounted || loadingUltimosProyectos) return;
+    if (!_isCurrentSession() || loadingUltimosProyectos) return;
 
     setState(() {
       ultimosProyectosSolicitados = true;
@@ -196,7 +220,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
         limit: 5,
       );
 
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         ultimosProyectosDashboard = data;
@@ -205,7 +229,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
 
       _guardarCacheCombinado();
     } catch (error) {
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         loadingUltimosProyectos = false;
@@ -216,28 +240,25 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
   }
 
   Future<void> refrescarDashboard() async {
-    if (!mounted) return;
+    if (!_isCurrentSession()) return;
 
     setState(() {
       refreshing = true;
     });
 
     try {
-      final resumen = await dashboardService.getResumenDashboard();
+      final resumenFuture = dashboardService.getResumenDashboard();
+      final estadosFuture = dashboardService.getEstadosDashboard();
 
-      if (!mounted) return;
+      final resumen = await resumenFuture;
+      final estados = await estadosFuture;
+
+      if (!_isCurrentSession()) return;
 
       setState(() {
         resumenDashboard = resumen;
-        initialLoadDone = true;
-      });
-
-      final estados = await dashboardService.getEstadosDashboard();
-
-      if (!mounted) return;
-
-      setState(() {
         estadosDashboard = estados;
+        initialLoadDone = true;
       });
 
       if (ultimosProyectosSolicitados) {
@@ -246,7 +267,7 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
           limit: 5,
         );
 
-        if (!mounted) return;
+        if (!_isCurrentSession()) return;
 
         setState(() {
           ultimosProyectosDashboard = proyectos;
@@ -255,10 +276,10 @@ class _DashboardRealPageState extends State<DashboardRealPage> {
 
       _guardarCacheCombinado();
     } catch (error) {
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
       mostrarMensaje(error.toString().replaceAll('Exception: ', ''));
     } finally {
-      if (!mounted) return;
+      if (!_isCurrentSession()) return;
 
       setState(() {
         refreshing = false;

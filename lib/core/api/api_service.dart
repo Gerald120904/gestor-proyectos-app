@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 class ApiService {
   ApiService._();
   static const String baseUrl =
-      'https://gestor-proyectos-backend-ezqx.onrender.com';
+      'https://gestor-de-proyecto-backend.onrender.com';
 
   static const Duration timeout = Duration(seconds: 10);
 

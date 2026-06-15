@@ -114,10 +114,7 @@ class AppFeedback {
               borderRadius: BorderRadius.circular(22),
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 24,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -236,11 +233,7 @@ class AppFeedback {
                   color: iconBackground,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Icon(
-                  icon,
-                  color: iconColor,
-                  size: 36,
-                ),
+                child: Icon(icon, color: iconColor, size: 36),
               ),
               const SizedBox(height: 14),
               Text(
@@ -297,7 +290,8 @@ class AppFeedback {
     final cleanMessage = cleanError(message);
     final lower = cleanMessage.toLowerCase();
 
-    final isSuccess = lower.contains('correctamente') ||
+    final isSuccess =
+        lower.contains('correctamente') ||
         lower.contains('exitos') ||
         lower.contains('creado') ||
         lower.contains('creada') ||
@@ -314,7 +308,8 @@ class AppFeedback {
         lower.contains('programado') ||
         lower.contains('programada');
 
-    final isError = lower.contains('error') ||
+    final isError =
+        lower.contains('error') ||
         lower.contains('incorrect') ||
         lower.contains('no se pudo') ||
         lower.contains('fall') ||
@@ -346,11 +341,7 @@ class AppFeedback {
       return;
     }
 
-    info(
-      context: context,
-      title: 'Aviso',
-      message: cleanMessage,
-    );
+    info(context: context, title: 'Aviso', message: cleanMessage);
   }
 
   static Future<void> confirmAndRun({
@@ -380,17 +371,11 @@ class AppFeedback {
 
       if (!context.mounted) return;
 
-      message(
-        context: context,
-        message: successMessage,
-      );
+      message(context: context, message: successMessage);
     } catch (exception) {
       if (!context.mounted) return;
 
-      message(
-        context: context,
-        message: cleanError(exception),
-      );
+      message(context: context, message: cleanError(exception));
     }
   }
 
