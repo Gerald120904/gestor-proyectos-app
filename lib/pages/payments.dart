@@ -282,268 +282,54 @@ class _PaymentsRealPageState extends State<PaymentsRealPage> {
   }
 
   Future<void> abrirFormularioPago({Map<String, dynamic>? pago}) async {
-    final formKey = GlobalKey<FormState>();
-
-    final montoController = TextEditingController(
-      text: pago == null ? '' : obtenerMonto(pago['monto']).toStringAsFixed(0),
-    );
-
-    final observacionController = TextEditingController(
-      text: pago?['observacion']?.toString() ?? '',
-    );
-
-    DateTime fechaSeleccionada = obtenerFechaPago(pago);
-    String metodoSeleccionado = pago?['metodo']?.toString() ?? 'EFECTIVO';
-
-    if (!metodosPago.containsKey(metodoSeleccionado)) {
-      metodoSeleccionado = 'EFECTIVO';
-    }
-
-    final esEdicion = pago != null;
-    final montoOriginal = esEdicion ? obtenerMonto(pago?['monto']) : 0.0;
-
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        bool guardando = false;
-
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return PopScope(
-              canPop: !guardando,
-              child: AppFormDialog(
-                title: esEdicion ? 'Editar pago' : 'Registrar pago',
-                subtitle:
-                    'Complete la información del pago asociado a este proyecto.',
-                icon: esEdicion ? Icons.edit_outlined : Icons.payments_outlined,
-                desktopWidth: 820,
-                desktopHeight: 500,
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      FormalFormGrid(
-                        children: [
-                          AppFormField(
-                            controller: montoController,
-                            enabled: !guardando,
-                            label: 'Monto del pago',
-                            hint: 'Ejemplo: 50000',
-                            icon: Icons.payments_outlined,
-                            requiredField: true,
-                            keyboardType: TextInputType.number,
-                            maxLength: 12,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                RegExp(r'[0-9.,]'),
-                              ),
-                              LengthLimitingTextInputFormatter(12),
-                            ],
-                            validator: (value) {
-                              final txt =
-                                  value?.trim().replaceAll(',', '.') ?? '';
-
-                              if (txt.isEmpty) {
-                                return 'El monto es obligatorio.';
-                              }
-
-                              final monto = double.tryParse(txt);
-
-                              if (monto == null || monto <= 0) {
-                                return 'Ingrese un monto válido.';
-                              }
-
-                              if (monto > 999999999) {
-                                return 'El monto es demasiado alto.';
-                              }
-
-                              return null;
-                            },
-                          ),
-                          AppSelectField<String>(
-                            label: 'Método de pago',
-                            value: metodoSeleccionado,
-                            icon: Icons.account_balance_wallet_outlined,
-                            requiredField: true,
-                            items: metodosPago.entries.map((entry) {
-                              return DropdownMenuItem<String>(
-                                value: entry.key,
-                                child: Text(entry.value),
-                              );
-                            }).toList(),
-                            onChanged: guardando
-                                ? null
-                                : (value) {
-                                    if (value == null) return;
-
-                                    setDialogState(() {
-                                      metodoSeleccionado = value;
-                                    });
-                                  },
-                          ),
-                          AppPickerField(
-                            label: 'Fecha del pago',
-                            value: formatearFecha(fechaSeleccionada),
-                            icon: Icons.calendar_month_outlined,
-                            trailingIcon: Icons.edit_calendar_outlined,
-                            requiredField: true,
-                            onTap: guardando
-                                ? null
-                                : () async {
-                                    final fecha = await showDatePicker(
-                                      context: dialogContext,
-                                      initialDate: fechaSeleccionada,
-                                      firstDate: DateTime(2020),
-                                      lastDate: DateTime(2035),
-                                    );
-
-                                    if (fecha != null) {
-                                      setDialogState(() {
-                                        fechaSeleccionada = fecha;
-                                      });
-                                    }
-                                  },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      AppFormField(
-                        controller: observacionController,
-                        enabled: !guardando,
-                        label: 'Observación',
-                        hint: 'Ejemplo: Pago inicial del proyecto',
-                        icon: Icons.notes_outlined,
-                        requiredField: true,
-                        maxLines: 4,
-                        maxLength: 500,
-                        textCapitalization: TextCapitalization.sentences,
-                        validator: (value) {
-                          final txt = value?.trim() ?? '';
-
-                          if (txt.isEmpty) {
-                            return 'La observación es obligatoria.';
-                          }
-
-                          if (txt.length < 3 || txt.length > 500) {
-                            return 'Debe tener entre 3 y 500 caracteres.';
-                          }
-
-                          return null;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  AppFormActions(
-                    loading: guardando,
-                    primaryText: esEdicion ? 'Actualizar' : 'Guardar',
-                    primaryIcon: Icons.save_outlined,
-                    onCancel: () {
-                      if (guardando) return;
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      Navigator.of(dialogContext).pop();
-                    },
-                    onSubmit: () async {
-                      if (!formKey.currentState!.validate()) {
-                        return;
-                      }
-
-                      final montoTexto = montoController.text.trim().replaceAll(
-                        ',',
-                        '.',
-                      );
-
-                      final observacion = observacionController.text.trim();
-                      final monto = double.parse(montoTexto);
-
-                      final resultadoMonto = BusinessRules.validarMontoPago(
-                        montoPago: monto,
-                        saldoPendiente: obtenerMontoPendienteActual(),
-                        montoOriginal: montoOriginal,
-                      );
-
-                      if (!resultadoMonto.isValid) {
-                        mostrarMensaje(resultadoMonto.message!);
-                        return;
-                      }
-
-                      final resultadoFecha = BusinessRules.validarFechaPago(
-                        fechaPago: fechaSeleccionada,
-                      );
-
-                      if (!resultadoFecha.isValid) {
-                        mostrarMensaje(resultadoFecha.message!);
-                        return;
-                      }
-
-                      setDialogState(() {
-                        guardando = true;
-                      });
-
-                      try {
-                        if (esEdicion) {
-                          await pagosService.actualizarPago(
-                            id: int.parse(pago['id'].toString()),
-                            monto: monto,
-                            fecha: fechaInput(fechaSeleccionada),
-                            metodo: metodoSeleccionado,
-                            observacion: observacion,
-                          );
-                        } else {
-                          await pagosService.crearPago(
-                            proyectoId: widget.proyectoId,
-                            monto: monto,
-                            fecha: fechaInput(fechaSeleccionada),
-                            metodo: metodoSeleccionado,
-                            observacion: observacion,
-                          );
-                        }
-
-                        if (!mounted) return;
-
-                        if (dialogContext.mounted) {
-                          FocusManager.instance.primaryFocus?.unfocus();
-                          Navigator.of(dialogContext).pop();
-                        }
-
-                        AppCache.invalidarTodoDespuesDeCambioEnProyecto(
-                          widget.proyectoId,
-                        );
-
-                        mostrarMensaje(
-                          esEdicion
-                              ? 'Pago actualizado correctamente.'
-                              : 'Pago registrado correctamente.',
-                        );
-
-                        await cargarPagos(silencioso: true);
-                      } catch (error) {
-                        if (dialogContext.mounted) {
-                          setDialogState(() {
-                            guardando = false;
-                          });
-                        }
-
-                        mostrarMensaje(
-                          error.toString().replaceAll('Exception: ', ''),
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
+        return _PagoFormDialog(
+          pago: pago,
+          metodosPago: metodosPago,
+          obtenerMontoPendienteActual: obtenerMontoPendienteActual,
+          formatearFecha: formatearFecha,
+          fechaInput: fechaInput,
+          obtenerFechaPago: obtenerFechaPago,
+          obtenerMonto: obtenerMonto,
+          onGuardar: (monto, fecha, metodo, observacion) async {
+            if (pago != null) {
+              await pagosService.actualizarPago(
+                id: int.parse(pago['id'].toString()),
+                monto: monto,
+                fecha: fecha,
+                metodo: metodo,
+                observacion: observacion,
+              );
+            } else {
+              await pagosService.crearPago(
+                proyectoId: widget.proyectoId,
+                monto: monto,
+                fecha: fecha,
+                metodo: metodo,
+                observacion: observacion,
+              );
+            }
+          },
+          onExito: () {
+            if (!mounted) return;
+            AppCache.invalidarTodoDespuesDeCambioEnProyecto(widget.proyectoId);
+            mostrarMensaje(
+              pago != null
+                  ? 'Pago actualizado correctamente.'
+                  : 'Pago registrado correctamente.',
             );
+            cargarPagos(silencioso: true);
+          },
+          onError: (msg) {
+            if (!mounted) return;
+            mostrarMensaje(msg);
           },
         );
       },
     );
-
-    montoController.dispose();
-    observacionController.dispose();
   }
 
   Future<void> eliminarPago(Map<String, dynamic> pago) async {
@@ -957,6 +743,252 @@ class PaymentSummaryRealRow extends StatelessWidget {
               color: AppColors.textDark,
               fontSize: 15,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =====================================================
+// DIÁLOGO DE PAGO (StatefulWidget propio para manejo
+// correcto del ciclo de vida de los controllers)
+// =====================================================
+
+class _PagoFormDialog extends StatefulWidget {
+  final Map<String, dynamic>? pago;
+  final Map<String, String> metodosPago;
+  final double Function() obtenerMontoPendienteActual;
+  final String Function(dynamic) formatearFecha;
+  final String Function(DateTime) fechaInput;
+  final DateTime Function(Map<String, dynamic>?) obtenerFechaPago;
+  final double Function(dynamic) obtenerMonto;
+  final Future<void> Function(double, String, String, String) onGuardar;
+  final void Function() onExito;
+  final void Function(String) onError;
+
+  const _PagoFormDialog({
+    required this.pago,
+    required this.metodosPago,
+    required this.obtenerMontoPendienteActual,
+    required this.formatearFecha,
+    required this.fechaInput,
+    required this.obtenerFechaPago,
+    required this.obtenerMonto,
+    required this.onGuardar,
+    required this.onExito,
+    required this.onError,
+  });
+
+  @override
+  State<_PagoFormDialog> createState() => _PagoFormDialogState();
+}
+
+class _PagoFormDialogState extends State<_PagoFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+
+  late final TextEditingController _montoController;
+  late final TextEditingController _observacionController;
+
+  late DateTime _fechaSeleccionada;
+  late String _metodoSeleccionado;
+  bool _guardando = false;
+
+  bool get esEdicion => widget.pago != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final pago = widget.pago;
+    _montoController = TextEditingController(
+      text: pago == null
+          ? ''
+          : widget.obtenerMonto(pago['monto']).toStringAsFixed(0),
+    );
+    _observacionController = TextEditingController(
+      text: pago?['observacion']?.toString() ?? '',
+    );
+    _fechaSeleccionada = widget.obtenerFechaPago(pago);
+    _metodoSeleccionado = pago?['metodo']?.toString() ?? 'EFECTIVO';
+    if (!widget.metodosPago.containsKey(_metodoSeleccionado)) {
+      _metodoSeleccionado = 'EFECTIVO';
+    }
+  }
+
+  @override
+  void dispose() {
+    // Flutter llama dispose() en el momento correcto al retirar
+    // el widget del árbol — sin condiciones de carrera.
+    _montoController.dispose();
+    _observacionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final montoTexto = _montoController.text.trim().replaceAll(',', '.');
+    final observacion = _observacionController.text.trim();
+    final monto = double.parse(montoTexto);
+    final montoOriginal =
+        esEdicion ? widget.obtenerMonto(widget.pago!['monto']) : 0.0;
+
+    final resultadoMonto = BusinessRules.validarMontoPago(
+      montoPago: monto,
+      saldoPendiente: widget.obtenerMontoPendienteActual(),
+      montoOriginal: montoOriginal,
+    );
+    if (!resultadoMonto.isValid) {
+      widget.onError(resultadoMonto.message!);
+      return;
+    }
+
+    final resultadoFecha = BusinessRules.validarFechaPago(
+      fechaPago: _fechaSeleccionada,
+    );
+    if (!resultadoFecha.isValid) {
+      widget.onError(resultadoFecha.message!);
+      return;
+    }
+
+    setState(() => _guardando = true);
+
+    try {
+      await widget.onGuardar(
+        monto,
+        widget.fechaInput(_fechaSeleccionada),
+        _metodoSeleccionado,
+        observacion,
+      );
+
+      if (!mounted) return;
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      Navigator.of(context).pop();
+
+      // Notificamos el éxito después de que el diálogo se haya cerrado
+      // para evitar cualquier interacción con el árbol desmontado.
+      widget.onExito();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _guardando = false);
+      widget.onError(error.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_guardando,
+      child: AppFormDialog(
+        title: esEdicion ? 'Editar pago' : 'Registrar pago',
+        subtitle: 'Complete la información del pago asociado a este proyecto.',
+        icon: esEdicion ? Icons.edit_outlined : Icons.payments_outlined,
+        desktopWidth: 820,
+        desktopHeight: 500,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FormalFormGrid(
+                children: [
+                  AppFormField(
+                    controller: _montoController,
+                    enabled: !_guardando,
+                    label: 'Monto del pago',
+                    hint: 'Ejemplo: 50000',
+                    icon: Icons.payments_outlined,
+                    requiredField: true,
+                    keyboardType: TextInputType.number,
+                    maxLength: 12,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                      LengthLimitingTextInputFormatter(12),
+                    ],
+                    validator: (value) {
+                      final txt = value?.trim().replaceAll(',', '.') ?? '';
+                      if (txt.isEmpty) return 'El monto es obligatorio.';
+                      final monto = double.tryParse(txt);
+                      if (monto == null || monto <= 0) return 'Ingrese un monto válido.';
+                      if (monto > 999999999) return 'El monto es demasiado alto.';
+                      return null;
+                    },
+                  ),
+                  AppSelectField<String>(
+                    label: 'Método de pago',
+                    value: _metodoSeleccionado,
+                    icon: Icons.account_balance_wallet_outlined,
+                    requiredField: true,
+                    items: widget.metodosPago.entries.map((entry) {
+                      return DropdownMenuItem<String>(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      );
+                    }).toList(),
+                    onChanged: _guardando
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setState(() => _metodoSeleccionado = value);
+                          },
+                  ),
+                  AppPickerField(
+                    label: 'Fecha del pago',
+                    value: widget.formatearFecha(_fechaSeleccionada),
+                    icon: Icons.calendar_month_outlined,
+                    trailingIcon: Icons.edit_calendar_outlined,
+                    requiredField: true,
+                    onTap: _guardando
+                        ? null
+                        : () async {
+                            final fecha = await showDatePicker(
+                              context: context,
+                              initialDate: _fechaSeleccionada,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                            );
+                            if (fecha != null) {
+                              setState(() => _fechaSeleccionada = fecha);
+                            }
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              AppFormField(
+                controller: _observacionController,
+                enabled: !_guardando,
+                label: 'Observación',
+                hint: 'Ejemplo: Pago inicial del proyecto',
+                icon: Icons.notes_outlined,
+                requiredField: true,
+                maxLines: 4,
+                maxLength: 500,
+                textCapitalization: TextCapitalization.sentences,
+                validator: (value) {
+                  final txt = value?.trim() ?? '';
+                  if (txt.isEmpty) return 'La observación es obligatoria.';
+                  if (txt.length < 3 || txt.length > 500) {
+                    return 'Debe tener entre 3 y 500 caracteres.';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          AppFormActions(
+            loading: _guardando,
+            primaryText: esEdicion ? 'Actualizar' : 'Guardar',
+            primaryIcon: Icons.save_outlined,
+            onCancel: () {
+              if (_guardando) return;
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop();
+            },
+            onSubmit: _submit,
           ),
         ],
       ),

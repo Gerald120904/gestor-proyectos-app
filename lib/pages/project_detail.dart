@@ -6,8 +6,9 @@ import '../pages/comments.dart';
 import '../pages/reminders.dart';
 import '../ui/common.dart';
 import '../core/cache/app_cache.dart';
+import '../services/proyectos_service.dart';
 
-class ProjectDetailRealPage extends StatelessWidget {
+class ProjectDetailRealPage extends StatefulWidget {
   final Map<String, dynamic> proyecto;
 
   const ProjectDetailRealPage({
@@ -15,8 +16,24 @@ class ProjectDetailRealPage extends StatelessWidget {
     required this.proyecto,
   });
 
+  @override
+  State<ProjectDetailRealPage> createState() => _ProjectDetailRealPageState();
+}
+
+class _ProjectDetailRealPageState extends State<ProjectDetailRealPage> {
+  final ProyectosService _proyectosService = ProyectosService();
+
+  late Map<String, dynamic> _proyecto;
+  bool _recargando = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _proyecto = widget.proyecto;
+  }
+
   int obtenerProyectoId() {
-    return int.tryParse(proyecto['id']?.toString() ?? '') ?? 0;
+    return int.tryParse(_proyecto['id']?.toString() ?? '') ?? 0;
   }
 
   double obtenerMonto(dynamic value) {
@@ -31,7 +48,7 @@ class ProjectDetailRealPage extends StatelessWidget {
   }
 
   double calcularTotalPagado() {
-    final pagos = proyecto['pagos'];
+    final pagos = _proyecto['pagos'];
 
     if (pagos is! List) return 0;
 
@@ -42,6 +59,47 @@ class ProjectDetailRealPage extends StatelessWidget {
 
       return total;
     });
+  }
+
+  Future<void> _recargarProyecto() async {
+    final proyectoId = obtenerProyectoId();
+    if (proyectoId == 0) return;
+
+    setState(() {
+      _recargando = true;
+    });
+
+    try {
+      // Invalidar caché para forzar datos frescos
+      AppCache.invalidarDetalleProyecto(proyectoId);
+      AppCache.proyectos = null;
+      AppCache.invalidarResumenes();
+
+      final proyectoActualizado = await _proyectosService.getProyecto(proyectoId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _proyecto = proyectoActualizado;
+        _recargando = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _recargando = false;
+      });
+    }
+  }
+
+  Future<void> _navegarYRecargar(Widget destino) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => destino),
+    );
+
+    if (mounted) {
+      await _recargarProyecto();
+    }
   }
 
   String estadoTexto(String estado) {
@@ -101,23 +159,23 @@ class ProjectDetailRealPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final proyectoId = obtenerProyectoId();
 
-    final nombreProyecto = proyecto['nombre']?.toString() ?? 'Sin nombre';
-    final descripcion = proyecto['descripcion']?.toString() ?? 'Sin descripción';
+    final nombreProyecto = _proyecto['nombre']?.toString() ?? 'Sin nombre';
+    final descripcion = _proyecto['descripcion']?.toString() ?? 'Sin descripción';
 
-    final cliente = proyecto['cliente'];
+    final cliente = _proyecto['cliente'];
     final nombreCliente = cliente is Map
         ? cliente['nombre']?.toString() ?? 'Sin cliente'
         : 'Sin cliente';
 
-    final montoTotal = obtenerMonto(proyecto['montoTotal']);
+    final montoTotal = obtenerMonto(_proyecto['montoTotal']);
     final totalPagado = calcularTotalPagado();
     final pendiente = montoTotal - totalPagado;
-    final estado = proyecto['estado']?.toString() ?? 'PENDIENTE';
+    final estado = _proyecto['estado']?.toString() ?? 'PENDIENTE';
 
-    final pagos = proyecto['pagos'];
-    final visitas = proyecto['visitas'];
-    final comentarios = proyecto['comentarios'];
-    final recordatorios = proyecto['recordatorios'];
+    final pagos = _proyecto['pagos'];
+    final visitas = _proyecto['visitas'];
+    final comentarios = _proyecto['comentarios'];
+    final recordatorios = _proyecto['recordatorios'];
 
     final totalPagos = pagos is List ? pagos.length : 0;
     final totalVisitas = visitas is List ? visitas.length : 0;
@@ -128,6 +186,17 @@ class ProjectDetailRealPage extends StatelessWidget {
       backgroundColor: Colors.transparent,
       appBar: AppBar(
         title: const Text('Detalle del proyecto'),
+        actions: [
+          if (_recargando)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+        ],
       ),
       body: AppBackground(
         padding: EdgeInsets.zero,
@@ -271,16 +340,13 @@ class ProjectDetailRealPage extends StatelessWidget {
 
                   AppCache.precargarDetalleDesdeProyecto(
                     proyectoId: proyectoId,
-                    proyecto: proyecto,
+                    proyecto: _proyecto,
                   );
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => PaymentsRealPage(
-                        proyectoId: proyectoId,
-                        proyectoNombre: nombreProyecto,
-                      ),
+                  _navegarYRecargar(
+                    PaymentsRealPage(
+                      proyectoId: proyectoId,
+                      proyectoNombre: nombreProyecto,
                     ),
                   );
                 },
@@ -296,16 +362,13 @@ class ProjectDetailRealPage extends StatelessWidget {
 
                   AppCache.precargarDetalleDesdeProyecto(
                     proyectoId: proyectoId,
-                    proyecto: proyecto,
+                    proyecto: _proyecto,
                   );
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => VisitsRealPage(
-                        proyectoId: proyectoId,
-                        proyectoNombre: nombreProyecto,
-                      ),
+                  _navegarYRecargar(
+                    VisitsRealPage(
+                      proyectoId: proyectoId,
+                      proyectoNombre: nombreProyecto,
                     ),
                   );
                 },
@@ -321,16 +384,13 @@ class ProjectDetailRealPage extends StatelessWidget {
 
                   AppCache.precargarDetalleDesdeProyecto(
                     proyectoId: proyectoId,
-                    proyecto: proyecto,
+                    proyecto: _proyecto,
                   );
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => CommentsRealPage(
-                        proyectoId: proyectoId,
-                        proyectoNombre: nombreProyecto,
-                      ),
+                  _navegarYRecargar(
+                    CommentsRealPage(
+                      proyectoId: proyectoId,
+                      proyectoNombre: nombreProyecto,
                     ),
                   );
                 },
@@ -346,16 +406,13 @@ class ProjectDetailRealPage extends StatelessWidget {
 
                   AppCache.precargarDetalleDesdeProyecto(
                     proyectoId: proyectoId,
-                    proyecto: proyecto,
+                    proyecto: _proyecto,
                   );
 
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => RemindersRealPage(
-                        proyectoId: proyectoId,
-                        proyectoNombre: nombreProyecto,
-                      ),
+                  _navegarYRecargar(
+                    RemindersRealPage(
+                      proyectoId: proyectoId,
+                      proyectoNombre: nombreProyecto,
                     ),
                   );
                 },

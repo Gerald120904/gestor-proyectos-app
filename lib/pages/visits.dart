@@ -263,273 +263,56 @@ class _VisitsRealPageState extends State<VisitsRealPage> {
   }
 
   Future<void> abrirFormularioVisita({Map<String, dynamic>? visita}) async {
-    final formKey = GlobalKey<FormState>();
-
-    final direccionController = TextEditingController(
-      text: visita?['direccion']?.toString() ?? '',
-    );
-
-    final observacionController = TextEditingController(
-      text: visita?['observacion']?.toString() ?? '',
-    );
-
-    DateTime fechaSeleccionada = obtenerFechaVisita(visita);
-    TimeOfDay horaSeleccionada = obtenerHoraVisita(visita);
-
-    String estadoSeleccionado = visita?['estado']?.toString() ?? 'PROGRAMADA';
-
-    if (!estadosVisita.containsKey(estadoSeleccionado)) {
-      estadoSeleccionado = 'PROGRAMADA';
-    }
-
-    final esEdicion = visita != null;
-
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        bool guardando = false;
-
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return PopScope(
-              canPop: !guardando,
-              child: AppFormDialog(
-                title: esEdicion ? 'Editar visita' : 'Programar visita',
-                subtitle:
-                    'Complete los datos de la visita asociada al proyecto de forma clara y ordenada.',
-                icon: esEdicion ? Icons.edit_calendar_outlined : Icons.event,
-                desktopWidth: 820,
-                desktopHeight: 560,
-                child: Form(
-                  key: formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      FormalFormGrid(
-                        children: [
-                          AppPickerField(
-                            label: 'Fecha de la visita',
-                            value: formatearFecha(fechaSeleccionada),
-                            icon: Icons.calendar_month_outlined,
-                            trailingIcon: Icons.edit_calendar_outlined,
-                            requiredField: true,
-                            onTap: guardando
-                                ? null
-                                : () async {
-                                    final fecha = await showDatePicker(
-                                      context: dialogContext,
-                                      initialDate: fechaSeleccionada,
-                                      firstDate: DateTime(2020),
-                                      lastDate: DateTime(2035),
-                                    );
-
-                                    if (fecha != null) {
-                                      setDialogState(() {
-                                        fechaSeleccionada = fecha;
-                                      });
-                                    }
-                                  },
-                          ),
-                          AppPickerField(
-                            label: 'Hora de la visita',
-                            value: horaInput(horaSeleccionada),
-                            icon: Icons.access_time,
-                            trailingIcon: Icons.edit,
-                            requiredField: true,
-                            onTap: guardando
-                                ? null
-                                : () async {
-                                    final hora = await showTimePicker(
-                                      context: dialogContext,
-                                      initialTime: horaSeleccionada,
-                                    );
-
-                                    if (hora != null) {
-                                      setDialogState(() {
-                                        horaSeleccionada = hora;
-                                      });
-                                    }
-                                  },
-                          ),
-                          AppSelectField<String>(
-                            label: 'Estado de la visita',
-                            value: estadoSeleccionado,
-                            icon: Icons.flag_outlined,
-                            requiredField: true,
-                            items: estadosVisita.entries.map((entry) {
-                              return DropdownMenuItem<String>(
-                                value: entry.key,
-                                child: Text(entry.value),
-                              );
-                            }).toList(),
-                            onChanged: guardando
-                                ? null
-                                : (value) {
-                                    if (value == null) return;
-
-                                    setDialogState(() {
-                                      estadoSeleccionado = value;
-                                    });
-                                  },
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      AppFormField(
-                        controller: direccionController,
-                        enabled: !guardando,
-                        label: 'Dirección de la visita',
-                        hint: 'Ejemplo: 200 metros norte de la escuela',
-                        icon: Icons.location_on_outlined,
-                        requiredField: true,
-                        maxLines: 3,
-                        maxLength: 180,
-                        textCapitalization: TextCapitalization.sentences,
-                        validator: (value) {
-                          final txt = value?.trim() ?? '';
-
-                          if (txt.isEmpty) {
-                            return 'La dirección es obligatoria.';
-                          }
-
-                          if (txt.length < 5 || txt.length > 180) {
-                            return 'Debe tener entre 5 y 180 caracteres.';
-                          }
-
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 18),
-                      AppFormField(
-                        controller: observacionController,
-                        enabled: !guardando,
-                        label: 'Observación',
-                        hint:
-                            'Ejemplo: Se revisará el avance del trabajo realizado',
-                        icon: Icons.notes_outlined,
-                        requiredField: true,
-                        maxLines: 4,
-                        maxLength: 500,
-                        textCapitalization: TextCapitalization.sentences,
-                        validator: (value) {
-                          final txt = value?.trim() ?? '';
-
-                          if (txt.isEmpty) {
-                            return 'La observación es obligatoria.';
-                          }
-
-                          if (txt.length < 3 || txt.length > 500) {
-                            return 'Debe tener entre 3 y 500 caracteres.';
-                          }
-
-                          return null;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                actions: [
-                  AppFormActions(
-                    loading: guardando,
-                    primaryText: esEdicion ? 'Actualizar' : 'Guardar',
-                    primaryIcon: Icons.save_outlined,
-                    onCancel: () {
-                      if (guardando) return;
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      Navigator.of(dialogContext).pop();
-                    },
-                    onSubmit: () async {
-                      if (!formKey.currentState!.validate()) {
-                        return;
-                      }
-
-                      final direccion = direccionController.text.trim();
-                      final observacion = observacionController.text.trim();
-
-                      final fechaHora = BusinessRules.combinarFechaHora(
-                        fecha: fechaSeleccionada,
-                        hora: horaSeleccionada.hour,
-                        minuto: horaSeleccionada.minute,
-                      );
-
-                      final resultadoVisita = BusinessRules.validarVisita(
-                        fechaHora: fechaHora,
-                        estado: estadoSeleccionado,
-                      );
-
-                      if (!resultadoVisita.isValid) {
-                        mostrarMensaje(resultadoVisita.message!);
-                        return;
-                      }
-
-                      setDialogState(() {
-                        guardando = true;
-                      });
-
-                      try {
-                        if (esEdicion) {
-                          await visitasService.actualizarVisita(
-                            id: int.parse(visita['id'].toString()),
-                            fecha: fechaInput(fechaSeleccionada),
-                            hora: horaInput(horaSeleccionada),
-                            direccion: direccion,
-                            estado: estadoSeleccionado,
-                            observacion: observacion,
-                          );
-                        } else {
-                          await visitasService.crearVisita(
-                            proyectoId: widget.proyectoId,
-                            fecha: fechaInput(fechaSeleccionada),
-                            hora: horaInput(horaSeleccionada),
-                            direccion: direccion,
-                            estado: estadoSeleccionado,
-                            observacion: observacion,
-                          );
-                        }
-
-                        if (!mounted) return;
-
-                        if (dialogContext.mounted) {
-                          FocusManager.instance.primaryFocus?.unfocus();
-                          Navigator.of(dialogContext).pop();
-                        }
-
-                        AppCache.invalidarTodoDespuesDeCambioEnProyecto(
-                          widget.proyectoId,
-                        );
-
-                        mostrarMensaje(
-                          esEdicion
-                              ? 'Visita actualizada correctamente.'
-                              : 'Visita programada correctamente.',
-                        );
-
-                        await cargarVisitas(silencioso: true);
-                      } catch (error) {
-                        if (dialogContext.mounted) {
-                          setDialogState(() {
-                            guardando = false;
-                          });
-                        }
-
-                        mostrarMensaje(
-                          error.toString().replaceAll('Exception: ', ''),
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
+        return _VisitaFormDialog(
+          visita: visita,
+          estadosVisita: estadosVisita,
+          formatearFecha: formatearFecha,
+          horaInput: horaInput,
+          fechaInput: fechaInput,
+          obtenerFechaVisita: obtenerFechaVisita,
+          obtenerHoraVisita: obtenerHoraVisita,
+          onGuardar: (fecha, hora, direccion, estado, observacion) async {
+            if (visita != null) {
+              await visitasService.actualizarVisita(
+                id: int.parse(visita['id'].toString()),
+                fecha: fecha,
+                hora: hora,
+                direccion: direccion,
+                estado: estado,
+                observacion: observacion,
+              );
+            } else {
+              await visitasService.crearVisita(
+                proyectoId: widget.proyectoId,
+                fecha: fecha,
+                hora: hora,
+                direccion: direccion,
+                estado: estado,
+                observacion: observacion,
+              );
+            }
+          },
+          onExito: () {
+            if (!mounted) return;
+            AppCache.invalidarTodoDespuesDeCambioEnProyecto(widget.proyectoId);
+            mostrarMensaje(
+              visita != null
+                  ? 'Visita actualizada correctamente.'
+                  : 'Visita programada correctamente.',
             );
+            cargarVisitas(silencioso: true);
+          },
+          onError: (msg) {
+            if (!mounted) return;
+            mostrarMensaje(msg);
           },
         );
       },
     );
-
-    direccionController.dispose();
-    observacionController.dispose();
   }
 
   Future<void> eliminarVisita(Map<String, dynamic> visita) async {
@@ -863,6 +646,253 @@ class _VisitsRealPageState extends State<VisitsRealPage> {
           onRefresh: cargarVisitas,
           child: construirContenidoVisitas(),
         ),
+      ),
+    );
+  }
+}
+
+// =====================================================
+// DIÁLOGO DE VISITA (StatefulWidget propio)
+// =====================================================
+
+class _VisitaFormDialog extends StatefulWidget {
+  final Map<String, dynamic>? visita;
+  final Map<String, String> estadosVisita;
+  final String Function(dynamic) formatearFecha;
+  final String Function(TimeOfDay) horaInput;
+  final String Function(DateTime) fechaInput;
+  final DateTime Function(Map<String, dynamic>?) obtenerFechaVisita;
+  final TimeOfDay Function(Map<String, dynamic>?) obtenerHoraVisita;
+  final Future<void> Function(String, String, String, String, String) onGuardar;
+  final void Function() onExito;
+  final void Function(String) onError;
+
+  const _VisitaFormDialog({
+    required this.visita,
+    required this.estadosVisita,
+    required this.formatearFecha,
+    required this.horaInput,
+    required this.fechaInput,
+    required this.obtenerFechaVisita,
+    required this.obtenerHoraVisita,
+    required this.onGuardar,
+    required this.onExito,
+    required this.onError,
+  });
+
+  @override
+  State<_VisitaFormDialog> createState() => _VisitaFormDialogState();
+}
+
+class _VisitaFormDialogState extends State<_VisitaFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+
+  late final TextEditingController _direccionController;
+  late final TextEditingController _observacionController;
+
+  late DateTime _fechaSeleccionada;
+  late TimeOfDay _horaSeleccionada;
+  late String _estadoSeleccionado;
+  bool _guardando = false;
+
+  bool get esEdicion => widget.visita != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final v = widget.visita;
+    _direccionController = TextEditingController(
+      text: v?['direccion']?.toString() ?? '',
+    );
+    _observacionController = TextEditingController(
+      text: v?['observacion']?.toString() ?? '',
+    );
+    _fechaSeleccionada = widget.obtenerFechaVisita(v);
+    _horaSeleccionada = widget.obtenerHoraVisita(v);
+    _estadoSeleccionado = v?['estado']?.toString() ?? 'PROGRAMADA';
+    if (!widget.estadosVisita.containsKey(_estadoSeleccionado)) {
+      _estadoSeleccionado = 'PROGRAMADA';
+    }
+  }
+
+  @override
+  void dispose() {
+    _direccionController.dispose();
+    _observacionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final direccion = _direccionController.text.trim();
+    final observacion = _observacionController.text.trim();
+
+    final fechaHora = BusinessRules.combinarFechaHora(
+      fecha: _fechaSeleccionada,
+      hora: _horaSeleccionada.hour,
+      minuto: _horaSeleccionada.minute,
+    );
+
+    final resultadoVisita = BusinessRules.validarVisita(
+      fechaHora: fechaHora,
+      estado: _estadoSeleccionado,
+    );
+    if (!resultadoVisita.isValid) {
+      widget.onError(resultadoVisita.message!);
+      return;
+    }
+
+    setState(() => _guardando = true);
+
+    try {
+      await widget.onGuardar(
+        widget.fechaInput(_fechaSeleccionada),
+        widget.horaInput(_horaSeleccionada),
+        direccion,
+        _estadoSeleccionado,
+        observacion,
+      );
+
+      if (!mounted) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      Navigator.of(context).pop();
+      widget.onExito();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _guardando = false);
+      widget.onError(error.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_guardando,
+      child: AppFormDialog(
+        title: esEdicion ? 'Editar visita' : 'Programar visita',
+        subtitle:
+            'Complete los datos de la visita asociada al proyecto de forma clara y ordenada.',
+        icon: esEdicion ? Icons.edit_calendar_outlined : Icons.event,
+        desktopWidth: 820,
+        desktopHeight: 560,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FormalFormGrid(
+                children: [
+                  AppPickerField(
+                    label: 'Fecha de la visita',
+                    value: widget.formatearFecha(_fechaSeleccionada),
+                    icon: Icons.calendar_month_outlined,
+                    trailingIcon: Icons.edit_calendar_outlined,
+                    requiredField: true,
+                    onTap: _guardando
+                        ? null
+                        : () async {
+                            final fecha = await showDatePicker(
+                              context: context,
+                              initialDate: _fechaSeleccionada,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime(2035),
+                            );
+                            if (fecha != null) {
+                              setState(() => _fechaSeleccionada = fecha);
+                            }
+                          },
+                  ),
+                  AppPickerField(
+                    label: 'Hora de la visita',
+                    value: widget.horaInput(_horaSeleccionada),
+                    icon: Icons.access_time,
+                    trailingIcon: Icons.edit,
+                    requiredField: true,
+                    onTap: _guardando
+                        ? null
+                        : () async {
+                            final hora = await showTimePicker(
+                              context: context,
+                              initialTime: _horaSeleccionada,
+                            );
+                            if (hora != null) {
+                              setState(() => _horaSeleccionada = hora);
+                            }
+                          },
+                  ),
+                  AppSelectField<String>(
+                    label: 'Estado de la visita',
+                    value: _estadoSeleccionado,
+                    icon: Icons.flag_outlined,
+                    requiredField: true,
+                    items: widget.estadosVisita.entries.map((entry) {
+                      return DropdownMenuItem<String>(
+                        value: entry.key,
+                        child: Text(entry.value),
+                      );
+                    }).toList(),
+                    onChanged: _guardando
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setState(() => _estadoSeleccionado = value);
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              AppFormField(
+                controller: _direccionController,
+                enabled: !_guardando,
+                label: 'Dirección de la visita',
+                hint: 'Ejemplo: 200 metros norte de la escuela',
+                icon: Icons.location_on_outlined,
+                requiredField: true,
+                maxLines: 3,
+                maxLength: 180,
+                textCapitalization: TextCapitalization.sentences,
+                validator: (value) {
+                  final txt = value?.trim() ?? '';
+                  if (txt.isEmpty) return 'La dirección es obligatoria.';
+                  if (txt.length < 5 || txt.length > 180) return 'Debe tener entre 5 y 180 caracteres.';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 18),
+              AppFormField(
+                controller: _observacionController,
+                enabled: !_guardando,
+                label: 'Observación',
+                hint: 'Ejemplo: Se revisará el avance del trabajo realizado',
+                icon: Icons.notes_outlined,
+                requiredField: true,
+                maxLines: 4,
+                maxLength: 500,
+                textCapitalization: TextCapitalization.sentences,
+                validator: (value) {
+                  final txt = value?.trim() ?? '';
+                  if (txt.isEmpty) return 'La observación es obligatoria.';
+                  if (txt.length < 3 || txt.length > 500) return 'Debe tener entre 3 y 500 caracteres.';
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          AppFormActions(
+            loading: _guardando,
+            primaryText: esEdicion ? 'Actualizar' : 'Guardar',
+            primaryIcon: Icons.save_outlined,
+            onCancel: () {
+              if (_guardando) return;
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop();
+            },
+            onSubmit: _submit,
+          ),
+        ],
       ),
     );
   }

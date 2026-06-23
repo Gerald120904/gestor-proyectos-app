@@ -191,154 +191,50 @@ class _CommentsRealPageState extends State<CommentsRealPage> {
   Future<void> abrirFormularioComentario({
     Map<String, dynamic>? comentario,
   }) async {
-    final formKey = GlobalKey<FormState>();
-
-    final contenidoController = TextEditingController(
-      text: comentario?['contenido']?.toString() ?? '',
-    );
-
-    final esEdicion = comentario != null;
-    final fechaComentario = obtenerFechaComentario(comentario);
-
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
-        bool guardando = false;
-
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return PopScope(
-              canPop: !guardando,
-              child: AppFormDialog(
-                title: esEdicion ? 'Editar comentario' : 'Agregar comentario',
-                subtitle:
-                    'Registre una observación clara relacionada con el avance o detalle del proyecto.',
-                icon: esEdicion
-                    ? Icons.edit_note_outlined
-                    : Icons.add_comment_outlined,
-                desktopWidth: 760,
-                desktopHeight: 420,
-                child: Form(
-                  key: formKey,
-                  child: AppFormField(
-                    controller: contenidoController,
-                    enabled: !guardando,
-                    label: 'Contenido del comentario',
-                    hint:
-                        'Escriba una observación clara sobre el avance, detalle o situación del proyecto',
-                    icon: Icons.notes_outlined,
-                    requiredField: true,
-                    maxLines: 7,
-                    maxLength: 500,
-                    textCapitalization: TextCapitalization.sentences,
-                    validator: (value) {
-                      final resultado = BusinessRules.validarComentario(
-                        contenido: value ?? '',
-                      );
-
-                      return resultado.isValid ? null : resultado.message;
-                    },
-                  ),
-                ),
-                actions: [
-                  AppFormActions(
-                    loading: guardando,
-                    primaryText: esEdicion ? 'Actualizar' : 'Guardar',
-                    primaryIcon: Icons.save_outlined,
-                    onCancel: () {
-                      if (guardando) return;
-
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      Navigator.of(dialogContext).pop();
-                    },
-                    onSubmit: () async {
-                      if (!formKey.currentState!.validate()) {
-                        return;
-                      }
-
-                      final contenido = contenidoController.text.trim();
-                      final titulo = generarTitulo(contenido);
-
-                      final fecha = esEdicion
-                          ? fechaInput(fechaComentario)
-                          : fechaInput(DateTime.now());
-
-                      final resultadoUnico =
-                          BusinessRules.validarComentarioUnico(
-                            comentarios: comentarios,
-                            idActual: comentario == null
-                                ? null
-                                : comentario['id']?.toString(),
-                            contenido: contenido,
-                          );
-
-                      if (!resultadoUnico.isValid) {
-                        mostrarMensaje(resultadoUnico.message!);
-                        return;
-                      }
-
-                      setDialogState(() {
-                        guardando = true;
-                      });
-
-                      try {
-                        if (esEdicion) {
-                          await comentariosService.actualizarComentario(
-                            id: int.parse(comentario['id'].toString()),
-                            titulo: titulo,
-                            contenido: contenido,
-                            fecha: fecha,
-                          );
-                        } else {
-                          await comentariosService.crearComentario(
-                            proyectoId: widget.proyectoId,
-                            titulo: titulo,
-                            contenido: contenido,
-                            fecha: fecha,
-                          );
-                        }
-
-                        if (!mounted) return;
-
-                        if (dialogContext.mounted) {
-                          FocusManager.instance.primaryFocus?.unfocus();
-                          Navigator.of(dialogContext).pop();
-                        }
-
-                        AppCache.invalidarTodoDespuesDeCambioEnProyecto(
-                          widget.proyectoId,
-                        );
-
-                        mostrarMensaje(
-                          esEdicion
-                              ? 'Comentario actualizado correctamente.'
-                              : 'Comentario agregado correctamente.',
-                        );
-
-                        await cargarComentarios(silencioso: true);
-                      } catch (error) {
-                        if (dialogContext.mounted) {
-                          setDialogState(() {
-                            guardando = false;
-                          });
-                        }
-
-                        mostrarMensaje(
-                          error.toString().replaceAll('Exception: ', ''),
-                        );
-                      }
-                    },
-                  ),
-                ],
-              ),
+        return _ComentarioFormDialog(
+          comentario: comentario,
+          comentarios: comentarios,
+          obtenerFechaComentario: obtenerFechaComentario,
+          fechaInput: fechaInput,
+          generarTitulo: generarTitulo,
+          onGuardar: (titulo, contenido, fecha) async {
+            if (comentario != null) {
+              await comentariosService.actualizarComentario(
+                id: int.parse(comentario['id'].toString()),
+                titulo: titulo,
+                contenido: contenido,
+                fecha: fecha,
+              );
+            } else {
+              await comentariosService.crearComentario(
+                proyectoId: widget.proyectoId,
+                titulo: titulo,
+                contenido: contenido,
+                fecha: fecha,
+              );
+            }
+          },
+          onExito: () {
+            if (!mounted) return;
+            AppCache.invalidarTodoDespuesDeCambioEnProyecto(widget.proyectoId);
+            mostrarMensaje(
+              comentario != null
+                  ? 'Comentario actualizado correctamente.'
+                  : 'Comentario agregado correctamente.',
             );
+            cargarComentarios(silencioso: true);
+          },
+          onError: (msg) {
+            if (!mounted) return;
+            mostrarMensaje(msg);
           },
         );
       },
     );
-
-    contenidoController.dispose();
   }
 
   Future<void> eliminarComentario(Map<String, dynamic> comentario) async {
@@ -690,6 +586,144 @@ class _CommentsRealPageState extends State<CommentsRealPage> {
           onRefresh: cargarComentarios,
           child: construirTablaComentarios(),
         ),
+      ),
+    );
+  }
+}
+
+// =====================================================
+// DIÁLOGO DE COMENTARIO (StatefulWidget propio)
+// =====================================================
+
+class _ComentarioFormDialog extends StatefulWidget {
+  final Map<String, dynamic>? comentario;
+  final List<Map<String, dynamic>> comentarios;
+  final DateTime Function(Map<String, dynamic>?) obtenerFechaComentario;
+  final String Function(DateTime) fechaInput;
+  final String Function(String) generarTitulo;
+  final Future<void> Function(String, String, String) onGuardar;
+  final void Function() onExito;
+  final void Function(String) onError;
+
+  const _ComentarioFormDialog({
+    required this.comentario,
+    required this.comentarios,
+    required this.obtenerFechaComentario,
+    required this.fechaInput,
+    required this.generarTitulo,
+    required this.onGuardar,
+    required this.onExito,
+    required this.onError,
+  });
+
+  @override
+  State<_ComentarioFormDialog> createState() => _ComentarioFormDialogState();
+}
+
+class _ComentarioFormDialogState extends State<_ComentarioFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _contenidoController;
+  bool _guardando = false;
+
+  bool get esEdicion => widget.comentario != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _contenidoController = TextEditingController(
+      text: widget.comentario?['contenido']?.toString() ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _contenidoController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final contenido = _contenidoController.text.trim();
+    final titulo = widget.generarTitulo(contenido);
+    final fechaComentario = widget.obtenerFechaComentario(widget.comentario);
+    final fecha = esEdicion
+        ? widget.fechaInput(fechaComentario)
+        : widget.fechaInput(DateTime.now());
+
+    final resultadoUnico = BusinessRules.validarComentarioUnico(
+      comentarios: widget.comentarios,
+      idActual: widget.comentario == null
+          ? null
+          : widget.comentario!['id']?.toString(),
+      contenido: contenido,
+    );
+    if (!resultadoUnico.isValid) {
+      widget.onError(resultadoUnico.message!);
+      return;
+    }
+
+    setState(() => _guardando = true);
+
+    try {
+      await widget.onGuardar(titulo, contenido, fecha);
+
+      if (!mounted) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      Navigator.of(context).pop();
+      widget.onExito();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _guardando = false);
+      widget.onError(error.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_guardando,
+      child: AppFormDialog(
+        title: esEdicion ? 'Editar comentario' : 'Agregar comentario',
+        subtitle:
+            'Registre una observación clara relacionada con el avance o detalle del proyecto.',
+        icon: esEdicion ? Icons.edit_note_outlined : Icons.add_comment_outlined,
+        desktopWidth: 760,
+        desktopHeight: 420,
+        child: Form(
+          key: _formKey,
+          child: AppFormField(
+            controller: _contenidoController,
+            enabled: !_guardando,
+            label: 'Contenido del comentario',
+            hint:
+                'Escriba una observación clara sobre el avance, detalle o situación del proyecto',
+            icon: Icons.notes_outlined,
+            requiredField: true,
+            maxLines: 7,
+            maxLength: 500,
+            textCapitalization: TextCapitalization.sentences,
+            validator: (value) {
+              final resultado = BusinessRules.validarComentario(
+                contenido: value ?? '',
+              );
+              return resultado.isValid ? null : resultado.message;
+            },
+          ),
+        ),
+        actions: [
+          AppFormActions(
+            loading: _guardando,
+            primaryText: esEdicion ? 'Actualizar' : 'Guardar',
+            primaryIcon: Icons.save_outlined,
+            onCancel: () {
+              if (_guardando) return;
+              FocusManager.instance.primaryFocus?.unfocus();
+              Navigator.of(context).pop();
+            },
+            onSubmit: _submit,
+          ),
+        ],
       ),
     );
   }
